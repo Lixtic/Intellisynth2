@@ -50,6 +50,10 @@ class AIFlightRecorderDashboard {
             });
             
             document.getElementById('system-time').textContent = `${dateString} ${timeString}`;
+            const mobileSystemTime = document.getElementById('mobile-system-time');
+            if (mobileSystemTime) {
+                mobileSystemTime.textContent = `${dateString} ${timeString}`;
+            }
             document.getElementById('footer-time').textContent = dateString;
         };
         
@@ -530,15 +534,24 @@ class AIFlightRecorderDashboard {
 
     toggleRealTime() {
         this.isRealTime = !this.isRealTime;
-        const button = document.getElementById('realtime-toggle');
-        
+
+        const buttons = document.querySelectorAll('[data-realtime-toggle]');
+        buttons.forEach(button => {
+            const activeClasses = button.dataset.activeClass || button.className;
+            const inactiveClasses = button.dataset.inactiveClass || button.className;
+
+            if (this.isRealTime) {
+                button.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>Real-time';
+                button.className = activeClasses;
+            } else {
+                button.innerHTML = '<i class="fas fa-pause mr-1"></i>Paused';
+                button.className = inactiveClasses;
+            }
+        });
+
         if (this.isRealTime) {
-            button.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>Real-time';
-            button.className = 'bg-accent-blue hover:bg-blue-600 px-3 py-1 rounded-lg text-sm transition-all';
             this.startRealTimeUpdates();
         } else {
-            button.innerHTML = '<i class="fas fa-pause mr-1"></i>Paused';
-            button.className = 'bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded-lg text-sm transition-all';
             this.stopRealTimeUpdates();
         }
     }
@@ -571,6 +584,39 @@ class AIFlightRecorderDashboard {
             if (e.key === ' ' && e.ctrlKey) {
                 e.preventDefault();
                 this.toggleRealTime();
+            }
+        });
+
+        this.setupMobileMenu();
+    }
+
+    setupMobileMenu() {
+        const toggleButton = document.getElementById('mobile-menu-toggle');
+        const mobileMenu = document.getElementById('mobile-menu');
+        if (!toggleButton || !mobileMenu) {
+            return;
+        }
+
+        const closeMenu = () => {
+            mobileMenu.classList.add('hidden');
+            toggleButton.setAttribute('aria-expanded', 'false');
+        };
+
+        toggleButton.addEventListener('click', () => {
+            const isHidden = mobileMenu.classList.contains('hidden');
+            mobileMenu.classList.toggle('hidden');
+            toggleButton.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        });
+
+        mobileMenu.querySelectorAll('a, button').forEach(element => {
+            element.addEventListener('click', () => {
+                closeMenu();
+            });
+        });
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth >= 1024) {
+                closeMenu();
             }
         });
     }
