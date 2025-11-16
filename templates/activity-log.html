@@ -1,0 +1,469 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📋 Activity Log - IntelliSynth Solution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/dashboard.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dark-bg': '#0f172a',
+                        'dark-card': '#1e293b',
+                        'accent-blue': '#3b82f6',
+                        'accent-green': '#10b981',
+                        'accent-yellow': '#f59e0b',
+                        'accent-red': '#ef4444',
+                        'accent-purple': '#8b5cf6'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gradient-to-br from-dark-bg via-slate-900 to-dark-bg min-h-screen text-white font-sans">
+    <!-- Navigation Header -->
+    <nav class="bg-dark-card/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/" class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                            🚀 IntelliSynth Solution
+                        </a>
+                        <span class="ml-3 text-slate-400">/</span>
+                        <span class="ml-3 text-xl font-semibold text-green-400">📋 Activity Log</span>
+                        <div class="ml-3 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full animate-pulse">
+                            <i class="fas fa-circle mr-1 text-green-400"></i>LIVE
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div id="system-time" class="text-sm text-slate-400"></div>
+                    <div id="log-stats" class="text-sm text-blue-400">
+                        <i class="fas fa-database mr-1"></i>
+                        <span id="total-logs">0</span> logs
+                    </div>
+                    <button onclick="exportLogs()" 
+                            class="bg-accent-purple hover:bg-purple-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-download mr-1"></i>Export
+                    </button>
+                    <button onclick="clearFilters()" 
+                            class="bg-accent-yellow hover:bg-yellow-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-filter mr-1"></i>Clear Filters
+                    </button>
+                    <button onclick="toggleAutoScroll()" id="autoscroll-toggle"
+                            class="bg-accent-green hover:bg-green-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-arrows-alt-v mr-1"></i>Auto-scroll
+                    </button>
+                    <a href="/" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-arrow-left mr-1"></i>Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        <!-- Activity Statistics -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+            <!-- Total Activities -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Total Activities</p>
+                        <span id="stat-total" class="text-2xl font-bold text-white">0</span>
+                    </div>
+                    <i class="fas fa-list text-blue-400 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Decisions Made -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Decisions</p>
+                        <span id="stat-decisions" class="text-2xl font-bold text-purple-400">0</span>
+                    </div>
+                    <i class="fas fa-brain text-purple-400 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Data Points -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Data Points</p>
+                        <span id="stat-datapoints" class="text-2xl font-bold text-green-400">0</span>
+                    </div>
+                    <i class="fas fa-chart-line text-green-400 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Errors/Anomalies -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Errors</p>
+                        <span id="stat-errors" class="text-2xl font-bold text-red-400">0</span>
+                    </div>
+                    <i class="fas fa-exclamation-triangle text-red-400 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Performance -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Avg Response</p>
+                        <span id="stat-performance" class="text-2xl font-bold text-yellow-400">0ms</span>
+                    </div>
+                    <i class="fas fa-tachometer-alt text-yellow-400 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Active Agents -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs">Active Agents</p>
+                        <span id="stat-agents" class="text-2xl font-bold text-cyan-400">0</span>
+                    </div>
+                    <i class="fas fa-robot text-cyan-400 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters and Search -->
+        <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm text-slate-400">Agent:</label>
+                    <select id="agent-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                        <option value="">All Agents</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm text-slate-400">Action:</label>
+                    <select id="action-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                        <option value="">All Actions</option>
+                        <option value="decision">Decisions</option>
+                        <option value="data_collection">Data Collection</option>
+                        <option value="analysis">Analysis</option>
+                        <option value="compliance_check">Compliance Check</option>
+                        <option value="security_scan">Security Scan</option>
+                        <option value="error">Errors</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm text-slate-400">Severity:</label>
+                    <select id="severity-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                        <option value="">All Levels</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                        <option value="info">Info</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm text-slate-400">Time Range:</label>
+                    <select id="time-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                        <option value="all">All Time</option>
+                        <option value="1h">Last Hour</option>
+                        <option value="24h">Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center space-x-2 flex-1">
+                    <label class="text-sm text-slate-400">Search:</label>
+                    <input type="text" id="search-input" placeholder="Search logs..." 
+                           class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600 flex-1 max-w-xs">
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <button onclick="pauseLiveUpdates()" id="pause-toggle"
+                            class="bg-accent-red hover:bg-red-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-pause mr-1"></i>Pause
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log Stream -->
+        <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl border border-slate-700/50">
+            <div class="p-6 border-b border-slate-700/50">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-semibold text-white flex items-center">
+                        <i class="fas fa-stream text-green-400 mr-3"></i>
+                        Real-time Activity Stream
+                    </h2>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2 text-sm text-slate-400">
+                            <span>Updates:</span>
+                            <span id="update-frequency" class="text-green-400">Every 2s</span>
+                        </div>
+                        <div class="flex items-center space-x-2 text-sm text-slate-400">
+                            <span>Last Update:</span>
+                            <span id="last-update" class="text-white">Never</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="activity-stream" class="h-96 overflow-y-auto p-4 space-y-2">
+                <!-- Activity logs will be populated here -->
+                <div class="text-center py-8 text-slate-400">
+                    <i class="fas fa-sync-alt fa-spin text-4xl mb-4"></i>
+                    <p class="text-lg">Initializing activity stream...</p>
+                    <p class="text-sm">Connecting to AI agents...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Analytics Chart -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <!-- Activity Timeline Chart -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold text-white">Activity Timeline</h3>
+                    <div class="flex space-x-2">
+                        <button class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-all">1H</button>
+                        <button class="px-3 py-1 bg-accent-blue text-white rounded text-xs">24H</button>
+                        <button class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-all">7D</button>
+                    </div>
+                </div>
+                <div class="h-64">
+                    <canvas id="activity-timeline-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Agent Activity Distribution -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold text-white">Agent Activity Distribution</h3>
+                    <div class="text-sm text-slate-400">
+                        Last updated: <span id="chart-last-last-updated">just now</span>
+                    </div>
+                </div>
+                <div class="h-64">
+                    <canvas id="agent-distribution-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Immutable Record Verification -->
+        <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 mt-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-semibold text-white flex items-center">
+                    <i class="fas fa-lock text-yellow-400 mr-3"></i>
+                    Immutable Record Verification
+                </h3>
+                <button onclick="verifyIntegrity()" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg text-sm transition-all">
+                    <i class="fas fa-shield-alt mr-2"></i>Verify Integrity
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-slate-800/50 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-slate-400 text-sm">Record Hash</span>
+                        <i class="fas fa-fingerprint text-green-400"></i>
+                    </div>
+                    <code id="record-hash" class="text-green-400 text-xs break-all">Loading...</code>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-slate-400 text-sm">Last Verification</span>
+                        <i class="fas fa-clock text-blue-400"></i>
+                    </div>
+                    <span id="last-verification" class="text-blue-400 text-sm">Verifying...</span>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-slate-400 text-sm">Integrity Status</span>
+                        <i id="integrity-icon" class="fas fa-check-circle text-green-400"></i>
+                    </div>
+                    <span id="integrity-status" class="text-green-400 text-sm">VERIFIED</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Detail Modal -->
+    <div id="activity-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-dark-card rounded-xl p-8 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-2xl font-semibold text-white">Activity Details</h3>
+                <button onclick="closeActivityModal()" class="text-slate-400 hover:text-white">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div id="activity-details">
+                <!-- Details will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-dark-card rounded-xl p-8 text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+            <p class="text-white">Processing activity logs...</p>
+        </div>
+    </div>
+
+    <!-- Floating Chatbot -->
+    <div id="chatbot" class="fixed bottom-4 right-4 z-50">
+        <button id="chatbot-toggle" class="bg-accent-blue text-white p-4 rounded-full shadow-lg hover:bg-blue-600 transition-all" aria-label="Open chatbot">
+            <i class="fas fa-comment-dots text-2xl"></i>
+        </button>
+        <div id="chatbot-window" class="hidden absolute bottom-16 right-0 w-96 bg-dark-card rounded-xl shadow-xl border border-slate-700/50 overflow-hidden">
+            <div class="p-4 border-b border-slate-700/50 flex justify-between items-center">
+                <h3 class="text-lg font-semibold">Data Analyst Assistant</h3>
+                <button id="chatbot-close" class="text-slate-400 hover:text-white" aria-label="Close chatbot">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="chat-messages" class="h-80 overflow-y-auto p-4 space-y-4 bg-slate-800/50">
+                <!-- Messages will be populated dynamically -->
+            </div>
+            <div class="p-4 border-t border-slate-700/50">
+                <div class="flex">
+                    <input id="chat-input" type="text" placeholder="Ask about logs, anomalies, metrics..." class="flex-1 bg-slate-700 rounded-l-lg p-2 text-white focus:outline-none focus:ring-2 focus:ring-accent-blue">
+                    <button id="chat-send" class="bg-accent-blue text-white px-4 rounded-r-lg hover:bg-blue-600 transition-all" aria-label="Send message">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/activity-log.js"></script>
+    <script>
+        // Sample data structures simulating access to logs, metrics, anomalies, etc.
+        const sampleData = {
+            logs: [
+                { timestamp: '2025-08-20T10:15:30Z', agent_id: 'agent-1', action: 'analysis', message: 'Processed data batch 123', severity: 'info' },
+                { timestamp: '2025-08-20T10:20:45Z', agent_id: 'agent-2', action: 'error', message: 'Failed to connect to database', severity: 'high' },
+                { timestamp: '2025-08-20T10:25:10Z', agent_id: 'anomaly-detector', action: 'detection', message: 'Detected 3 anomalies', severity: 'medium' },
+                { timestamp: '2025-08-20T10:30:00Z', agent_id: 'agent-3', action: 'decision', message: 'Approved transaction', severity: 'info' },
+                // Add more sample logs as needed
+            ],
+            anomalies: [
+                { id: 'STAT-1724145930', type: 'statistical_outlier', metric: 'error_rate', value: 0.15, severity: 'medium', timestamp: '2025-08-20T10:25:30Z', description: 'Error rate higher than baseline' },
+                { id: 'PAT-agent1-1724145945', type: 'activity_pattern', agent_id: 'agent-1', metric: 'activity_rate_per_hour', value: 25, severity: 'low', timestamp: '2025-08-20T10:25:45Z', description: 'Low activity rate' },
+                // Add more sample anomalies
+            ],
+            metrics: {
+                cpu_usage: 45,
+                memory_usage: 68,
+                error_rate: 0.02,
+                active_agents: 11,
+                tasks_completed: 1847,
+                compliance_score: 89
+            },
+            appInfo: {
+                version: '1.0.0',
+                uptime: '99.9%',
+                api_endpoints: 18,
+                last_check: '5 min ago'
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const chatbotToggle = document.getElementById('chatbot-toggle');
+            const chatbotWindow = document.getElementById('chatbot-window');
+            const chatbotClose = document.getElementById('chatbot-close');
+            const chatSend = document.getElementById('chat-send');
+            const chatInput = document.getElementById('chat-input');
+            const chatMessages = document.getElementById('chat-messages');
+
+            chatbotToggle.addEventListener('click', () => {
+                chatbotWindow.classList.toggle('hidden');
+            });
+
+            chatbotClose.addEventListener('click', () => {
+                chatbotWindow.classList.add('hidden');
+            });
+
+            chatSend.addEventListener('click', sendMessage);
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Initial welcome message
+            addMessage('AI', 'Hello! I\'m the Data Analyst Assistant. Ask me about logs, anomalies, metrics, or app information.');
+
+            function sendMessage() {
+                const message = chatInput.value.trim();
+                if (!message) return;
+
+                addMessage('User', message);
+                chatInput.value = '';
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                // Show loading indicator
+                addMessage('AI', '<span class="italic text-slate-400">Thinking...</span>');
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                // Send to backend
+                fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Remove the loading indicator
+                    removeLastMessageIfLoading();
+                    if (data && data.response) {
+                        addMessage('AI', data.response);
+                    } else {
+                        addMessage('AI', 'Sorry, I did not get a valid response from the server.');
+                    }
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                })
+                .catch(error => {
+                    removeLastMessageIfLoading();
+                    addMessage('AI', 'Error contacting the server.');
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                });
+            }
+
+            function addMessage(sender, content) {
+                const msgDiv = document.createElement('div');
+                msgDiv.classList.add('flex', sender === 'User' ? 'justify-end' : 'justify-start');
+                const bubbleClass = sender === 'User' ? 'bg-accent-blue text-white' : 'bg-slate-700 text-white';
+                msgDiv.innerHTML = `<div class="${bubbleClass} px-4 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap">${content}</div>`;
+                chatMessages.appendChild(msgDiv);
+            }
+
+            function removeLastMessageIfLoading() {
+                // Remove the last message if it is the loading indicator
+                const lastMsg = chatMessages.lastElementChild;
+                if (lastMsg && lastMsg.textContent.includes('Thinking...')) {
+                    chatMessages.removeChild(lastMsg);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
