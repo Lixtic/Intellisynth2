@@ -9,8 +9,20 @@ import logging
 import random
 import hashlib
 
+# Import database
+from app.database import SessionLocal
+from app.models.activity_log import ActivityLog
+
 # Import activity logger service
 from app.services.activity_logger import activity_logger
+
+# Database dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Pydantic models for activity logging
 class ActivityLogCreate(BaseModel):
@@ -127,6 +139,13 @@ async def compliance_management(request: Request):
 async def activity_log(request: Request):
     """Real-time activity log - transparent immutable record of all AI agent interactions"""
     return templates.TemplateResponse("activity-log.html", {"request": request})
+
+@app.get("/reports", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="Reports & Analytics",
+         description="Comprehensive reporting and analytics dashboard for AI agent activities, compliance, and performance metrics")
+async def reports(request: Request):
+    """Reports and analytics interface with charts, metrics, and export capabilities"""
+    return templates.TemplateResponse("reports.html", {"request": request})
 
 @app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Login Page",
@@ -932,6 +951,302 @@ async def create_activity_log(activity: ActivityLogCreate):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create activity log: {str(e)}")
+
+# ============================================================================
+# 📊 REPORTS API - Report Generation and Analytics
+# ============================================================================
+
+@app.get("/api/reports/summary", tags=["📊 Reports"],
+         summary="Get Reports Summary",
+         description="Get summary statistics for generated reports")
+async def get_reports_summary():
+    """Get summary of all reports including counts and statistics"""
+    try:
+        # Use Firebase report service for persistent storage
+        from app.config import get_report_service
+        report_service = get_report_service()
+        
+        summary = await report_service.get_reports_summary()
+        
+        return {
+            "status": "success",
+            "summary": summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get reports summary: {str(e)}")
+
+@app.get("/api/reports", tags=["📊 Reports"],
+         summary="List All Reports",
+         description="Get a list of all generated reports")
+async def list_reports(
+    report_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50
+):
+    """Get a list of all generated reports with metadata"""
+    try:
+        # Use Firebase report service
+        from app.config import get_report_service
+        report_service = get_report_service()
+        
+        reports = await report_service.list_reports(
+            report_type=report_type,
+            status=status,
+            limit=limit
+        )
+        
+        return {
+            "status": "success",
+            "reports": reports,
+            "total": len(reports)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list reports: {str(e)}")
+
+@app.post("/api/reports/generate", tags=["📊 Reports"],
+          summary="Generate New Report",
+          description="Generate a new report based on type and time period")
+async def generate_report(report_type: str, time_period: str = "24h"):
+    """
+    Generate a new report based on the specified type and time period.
+    
+    Report Types:
+    - agent_activity: Activity report for all agents
+    - security_summary: Security events and threats
+    - compliance_check: Compliance status and violations
+    - performance_metrics: Agent performance statistics
+    - anomaly_detection: Detected anomalies and patterns
+    """
+    try:
+        db = next(get_db())
+        
+        # Parse time period
+        hours = 24
+        if time_period == "1h":
+            hours = 1
+        elif time_period == "7d":
+            hours = 168
+        elif time_period == "30d":
+            hours = 720
+        
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Generate report based on type
+        if report_type == "agent_activity":
+            # Get all agent activities
+            activities = db.query(ActivityLog).filter(
+                ActivityLog.timestamp >= cutoff_time
+            ).all()
+            
+            # Get unique agents
+            from app.models.agent import Agent
+            all_agents = db.query(Agent).all()
+            active_agents = [a for a in all_agents if a.status == 'active']
+            
+            # Count activities by type and agent
+            by_type = {}
+            by_agent = {}
+            for activity in activities:
+                action_type = activity.action_type
+                by_type[action_type] = by_type.get(action_type, 0) + 1
+                
+                agent_id = activity.agent_id
+                by_agent[agent_id] = by_agent.get(agent_id, 0) + 1
+            
+            # Calculate success rate
+            successful = sum(1 for a in activities if a.action_type != 'error')
+            success_rate = f"{(successful / len(activities) * 100):.1f}%" if activities else "0%"
+            
+            report_data = {
+                "total_activities": len(activities),
+                "by_type": by_type,
+                "by_agent": by_agent,
+                "agent_stats": {
+                    "total_agents": len(all_agents),
+                    "active_agents": len(active_agents),
+                    "idle_agents": len(all_agents) - len(active_agents),
+                    "offline_agents": 0
+                },
+                "activity_metrics": {
+                    "total_tasks": len(activities),
+                    "completed_tasks": successful,
+                    "failed_tasks": len(activities) - successful,
+                    "success_rate": success_rate
+                },
+                "top_performing_agents": [
+                    {"id": agent_id, "name": agent_id, "tasks_completed": count}
+                    for agent_id, count in sorted(by_agent.items(), key=lambda x: x[1], reverse=True)[:5]
+                ]
+            }
+        
+        elif report_type == "security_summary":
+            # Get security-related activities
+            security_logs = db.query(ActivityLog).filter(
+                ActivityLog.timestamp >= cutoff_time,
+                ActivityLog.action_type.in_(['security_scan', 'error'])
+            ).all()
+            
+            threats = sum(1 for log in security_logs if log.action_type == 'security_scan')
+            errors = sum(1 for log in security_logs if log.action_type == 'error')
+            
+            report_data = {
+                "total_security_events": len(security_logs),
+                "threats_detected": threats,
+                "errors": errors,
+                "security_events": {
+                    "total_events": len(security_logs),
+                    "critical_events": sum(1 for log in security_logs if log.severity == 'critical'),
+                    "high_priority": sum(1 for log in security_logs if log.severity == 'high'),
+                    "medium_priority": sum(1 for log in security_logs if log.severity == 'medium')
+                },
+                "threat_analysis": {
+                    "active_threats": threats,
+                    "blocked_attempts": 0,
+                    "vulnerabilities_found": threats,
+                    "remediation_pending": 0
+                }
+            }
+        
+        elif report_type == "compliance_check":
+            # Get compliance-related activities
+            compliance_logs = db.query(ActivityLog).filter(
+                ActivityLog.timestamp >= cutoff_time,
+                ActivityLog.action_type == 'compliance_check'
+            ).all()
+            
+            compliant = sum(1 for log in compliance_logs if log.data and 'compliant' in str(log.data).lower())
+            violations = sum(1 for log in compliance_logs if log.data and 'violation' in str(log.data).lower())
+            
+            report_data = {
+                "total_checks": len(compliance_logs),
+                "compliant": compliant,
+                "violations": violations,
+                "compliance_metrics": {
+                    "total_rules_checked": len(compliance_logs),
+                    "rules_passed": compliant,
+                    "rules_failed": violations,
+                    "compliance_score": f"{(compliant / len(compliance_logs) * 100):.1f}%" if compliance_logs else "N/A"
+                },
+                "violation_summary": {
+                    "critical_violations": sum(1 for log in compliance_logs if log.severity == 'critical'),
+                    "major_violations": sum(1 for log in compliance_logs if log.severity == 'high'),
+                    "minor_violations": sum(1 for log in compliance_logs if log.severity == 'medium'),
+                    "resolved_violations": 0
+                }
+            }
+        
+        elif report_type == "performance_metrics":
+            # Get performance data
+            all_activities = db.query(ActivityLog).filter(
+                ActivityLog.timestamp >= cutoff_time
+            ).all()
+            
+            successful = sum(1 for log in all_activities if log.action_type != 'error')
+            success_rate = (successful / len(all_activities) * 100) if all_activities else 0
+            
+            report_data = {
+                "total_operations": len(all_activities),
+                "average_execution_time_ms": 100,  # Placeholder
+                "success_rate": f"{success_rate:.1f}%",
+                "performance_summary": {
+                    "total_requests": len(all_activities),
+                    "successful_requests": successful,
+                    "failed_requests": len(all_activities) - successful,
+                    "average_response_time": "100ms"
+                },
+                "throughput_metrics": {
+                    "requests_per_hour": len(all_activities) // max(hours, 1),
+                    "peak_hour_requests": len(all_activities),
+                    "average_concurrent_users": 1,
+                    "max_concurrent_users": 1
+                }
+            }
+        
+        elif report_type == "anomaly_detection":
+            # Get anomaly data
+            anomaly_logs = db.query(ActivityLog).filter(
+                ActivityLog.timestamp >= cutoff_time,
+                ActivityLog.severity.in_(['warning', 'critical'])
+            ).all()
+            
+            report_data = {
+                "anomalies_detected": len(anomaly_logs),
+                "by_severity": {
+                    "warning": sum(1 for log in anomaly_logs if log.severity == 'warning'),
+                    "critical": sum(1 for log in anomaly_logs if log.severity == 'critical')
+                },
+                "anomaly_summary": {
+                    "total_anomalies": len(anomaly_logs),
+                    "critical_anomalies": sum(1 for log in anomaly_logs if log.severity == 'critical'),
+                    "warning_anomalies": sum(1 for log in anomaly_logs if log.severity == 'warning'),
+                    "resolved_anomalies": 0
+                },
+                "anomaly_types": {
+                    "behavioral_anomalies": sum(1 for log in anomaly_logs if log.data and 'behavior' in str(log.data).lower()),
+                    "performance_anomalies": sum(1 for log in anomaly_logs if log.data and 'performance' in str(log.data).lower()),
+                    "security_anomalies": sum(1 for log in anomaly_logs if log.action_type == 'security_scan'),
+                    "data_anomalies": sum(1 for log in anomaly_logs if log.data and 'data' in str(log.data).lower())
+                }
+            }
+        else:
+            report_data = {"message": "Unknown report type"}
+        
+        # Store report in Firebase
+        from app.config import get_report_service
+        report_service = get_report_service()
+        
+        stored_report = await report_service.create_report(
+            report_type=report_type,
+            time_period=time_period,
+            data=report_data,
+            status="completed"
+        )
+        
+        if stored_report:
+            return {
+                "status": "success",
+                "report": stored_report
+            }
+        else:
+            # Fallback to in-memory report if Firebase storage fails
+            report_id = f"report-{int(datetime.utcnow().timestamp())}"
+            return {
+                "status": "success",
+                "report": {
+                    "id": report_id,
+                    "type": report_type,
+                    "time_period": time_period,
+                    "generated_at": datetime.utcnow().isoformat(),
+                    "data": report_data
+                }
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+@app.get("/api/reports/{report_id}", tags=["📊 Reports"],
+         summary="Get Report Details",
+         description="Get detailed information for a specific report")
+async def get_report_details(report_id: str):
+    """Get detailed information for a specific report by ID"""
+    try:
+        # Use Firebase report service
+        from app.config import get_report_service
+        report_service = get_report_service()
+        
+        report = await report_service.get_report(report_id)
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        return {
+            "status": "success",
+            "report": report
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get report details: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
