@@ -106,6 +106,151 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# ==============================================================================
+# 🛡️ GLOBAL ERROR HANDLING MIDDLEWARE
+# ==============================================================================
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+import traceback
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handle HTTP exceptions with consistent error format"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "path": str(request.url.path),
+            "method": request.method,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle request validation errors with detailed information"""
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "field": " -> ".join(str(x) for x in error["loc"]),
+            "message": error["msg"],
+            "type": error["type"]
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Validation Error",
+            "detail": "Request validation failed",
+            "validation_errors": errors,
+            "path": str(request.url.path),
+            "method": request.method,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all uncaught exceptions with logging and consistent error format"""
+    # Log the full exception with traceback
+    logger.error(f"Unhandled exception: {str(exc)}")
+    logger.error(traceback.format_exc())
+    
+    # Log to activity logger for audit trail
+    try:
+        await activity_logger.log_error(
+            agent_id="system",
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            error_details={
+                "path": str(request.url.path),
+                "method": request.method,
+                "traceback": traceback.format_exc()
+            }
+        )
+    except:
+        # Don't fail if activity logging fails
+        pass
+    
+    # Return user-friendly error response
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal Server Error",
+            "detail": "An unexpected error occurred. Please try again later.",
+            "error_type": type(exc).__name__,
+            "path": str(request.url.path),
+            "method": request.method,
+            "timestamp": datetime.utcnow().isoformat(),
+            # Include actual error message in development mode
+            "debug_message": str(exc) if app.debug else None
+        }
+    )
+
+# Custom exception classes for domain-specific errors
+class AgentNotFoundError(HTTPException):
+    """Raised when an agent is not found"""
+    def __init__(self, agent_id: str):
+        super().__init__(
+            status_code=404,
+            detail=f"Agent with ID '{agent_id}' not found"
+        )
+
+class DatabaseError(HTTPException):
+    """Raised when a database operation fails"""
+    def __init__(self, detail: str):
+        super().__init__(
+            status_code=500,
+            detail=f"Database operation failed: {detail}"
+        )
+
+class ValidationError(HTTPException):
+    """Raised when input validation fails"""
+    def __init__(self, detail: str):
+        super().__init__(
+            status_code=400,
+            detail=f"Validation failed: {detail}"
+        )
+
+# Middleware to log all requests
+@app.middleware("http")
+async def log_requests_middleware(request: Request, call_next):
+    """Log all incoming requests and their responses"""
+    start_time = datetime.utcnow()
+    
+    # Log request
+    logger.info(f"{request.method} {request.url.path}")
+    
+    try:
+        response = await call_next(request)
+        
+        # Calculate response time
+        process_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        # Log response
+        logger.info(
+            f"{request.method} {request.url.path} - "
+            f"Status: {response.status_code} - "
+            f"Duration: {process_time:.3f}s"
+        )
+        
+        # Add custom headers
+        response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-Request-ID"] = str(id(request))
+        
+        return response
+    except Exception as exc:
+        # Log the error
+        logger.error(f"Request failed: {request.method} {request.url.path} - {str(exc)}")
+        raise
+
+# ==============================================================================
+# End of Error Handling Middleware
+# ==============================================================================
+
 # 🏠 Core Application Endpoints
 @app.get("/", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Main Dashboard",
@@ -311,20 +456,163 @@ async def get_activity_stats(
         stats['agent_distribution'] = {}
     return stats
 
-@app.get("/api/agents", tags=["📋 Activity Log"],
-         summary="Get Active Agents",
-         description="Get list of active AI agents with their current status and activity metrics")
-async def get_agents():
-    """Get list of active AI agents for filtering and monitoring"""
-    
-    # Example agent data for filter dropdown
-    return [
-        {"id": "ai-monitor", "name": "AI Monitor Agent", "status": "active"},
-        {"id": "compliance-agent", "name": "Compliance Agent", "status": "active"},
-        {"id": "security-scanner", "name": "Security Scanner", "status": "active"},
-        {"id": "data-analyst", "name": "Data Analyst", "status": "active"},
-        {"id": "anomaly-detector", "name": "Anomaly Detector", "status": "active"}
-    ]
+# ==============================================================================
+# 🤖 AGENT MANAGEMENT CRUD ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/agents", tags=["🤖 Agent Management"],
+         summary="Get All Agents",
+         description="Get list of all AI agents with optional filtering by status, type, or enabled state")
+async def get_agents(
+    status: Optional[str] = None,
+    agent_type: Optional[str] = None,
+    is_enabled: Optional[bool] = None,
+    limit: int = 100
+):
+    """Get all agents with optional filters"""
+    from app.services.agent_service import agent_service
+    try:
+        agents = agent_service.get_all_agents(
+            status=status,
+            agent_type=agent_type,
+            is_enabled=is_enabled,
+            limit=limit
+        )
+        return agents
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/agents", tags=["🤖 Agent Management"],
+          summary="Create Agent",
+          description="Create a new AI agent in the system")
+async def create_agent(agent_data: dict):
+    """Create a new agent"""
+    from app.services.agent_service import agent_service
+    try:
+        agent = agent_service.create_agent(
+            name=agent_data.get('name'),
+            agent_type=agent_data.get('agent_type', 'general'),
+            description=agent_data.get('description'),
+            capabilities=agent_data.get('capabilities', []),
+            configuration=agent_data.get('configuration', {}),
+            owner=agent_data.get('owner'),
+            tags=agent_data.get('tags', [])
+        )
+        return agent
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/agents/{agent_id}", tags=["🤖 Agent Management"],
+         summary="Get Agent by ID",
+         description="Get detailed information about a specific agent")
+async def get_agent(agent_id: str):
+    """Get agent by ID"""
+    from app.services.agent_service import agent_service
+    agent = agent_service.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent
+
+@app.put("/api/agents/{agent_id}", tags=["🤖 Agent Management"],
+         summary="Update Agent",
+         description="Update an existing agent's information")
+async def update_agent(agent_id: str, agent_data: dict):
+    """Update an existing agent"""
+    from app.services.agent_service import agent_service
+    try:
+        agent = agent_service.update_agent(
+            agent_id=agent_id,
+            name=agent_data.get('name'),
+            description=agent_data.get('description'),
+            agent_type=agent_data.get('agent_type'),
+            status=agent_data.get('status'),
+            capabilities=agent_data.get('capabilities'),
+            configuration=agent_data.get('configuration'),
+            is_enabled=agent_data.get('is_enabled'),
+            owner=agent_data.get('owner'),
+            tags=agent_data.get('tags')
+        )
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return agent
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/agents/{agent_id}", tags=["🤖 Agent Management"],
+            summary="Delete Agent",
+            description="Delete an agent from the system")
+async def delete_agent(agent_id: str):
+    """Delete an agent"""
+    from app.services.agent_service import agent_service
+    try:
+        success = agent_service.delete_agent(agent_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return {"message": "Agent deleted successfully", "agent_id": agent_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/agents/stats/overview", tags=["🤖 Agent Management"],
+         summary="Get Agent Statistics",
+         description="Get aggregated statistics about all agents")
+async def get_agent_stats():
+    """Get agent statistics"""
+    from app.services.agent_service import agent_service
+    try:
+        return agent_service.get_agent_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/agents/search/{query}", tags=["🤖 Agent Management"],
+         summary="Search Agents",
+         description="Search agents by name or description")
+async def search_agents(query: str, limit: int = 50):
+    """Search agents"""
+    from app.services.agent_service import agent_service
+    try:
+        return agent_service.search_agents(query, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==============================================================================
+# End of Agent Management Endpoints
+# ==============================================================================
+
+@app.get("/api/agents-legacy", tags=["📋 Activity Log"],
+         summary="Get Active Agents (Legacy)",
+         description="Legacy endpoint - Get list of active AI agents for filtering")
+async def get_agents_legacy():
+    """Get list of active AI agents for filtering (Legacy endpoint)"""
+    from app.services.agent_service import agent_service
+    try:
+        # Get all active agents
+        agents = agent_service.get_all_agents(status='active', limit=100)
+        
+        # If no agents, return sample data for compatibility
+        if not agents:
+            return [
+                {"id": "ai-monitor", "name": "AI Monitor Agent", "status": "active"},
+                {"id": "compliance-agent", "name": "Compliance Agent", "status": "active"},
+                {"id": "security-scanner", "name": "Security Scanner", "status": "active"},
+                {"id": "data-analyst", "name": "Data Analyst", "status": "active"},
+                {"id": "anomaly-detector", "name": "Anomaly Detector", "status": "active"}
+            ]
+        
+        # Return simplified format for legacy compatibility
+        return [{"id": a['id'], "name": a['name'], "status": a['status']} for a in agents]
+    except Exception as e:
+        # Fallback to sample data on error
+        return [
+            {"id": "ai-monitor", "name": "AI Monitor Agent", "status": "active"},
+            {"id": "compliance-agent", "name": "Compliance Agent", "status": "active"},
+            {"id": "security-scanner", "name": "Security Scanner", "status": "active"},
+            {"id": "data-analyst", "name": "Data Analyst", "status": "active"},
+            {"id": "anomaly-detector", "name": "Anomaly Detector", "status": "active"}
+        ]
 
 @app.get("/api/activity-logs/verify-integrity", tags=["📋 Activity Log"],
          summary="Verify Record Integrity",

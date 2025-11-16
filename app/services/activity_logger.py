@@ -9,16 +9,34 @@ import hashlib
 import json
 from functools import wraps
 import asyncio
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, engine
+from app.models.activity_log import ActivityLog, Base
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 class ActivityLoggerService:
     """Service for logging AI agent activities with immutable record keeping"""
     
     def __init__(self):
-        self.activities = []  # In-memory store for demonstration
+        # Keep in-memory cache for backward compatibility and quick access
+        self._cache = []
+        self._cache_limit = 100  # Only cache last 100 for performance
     
     def generate_hash(self, activity_data: str) -> str:
         """Generate SHA-256 hash for immutable record verification"""
         return hashlib.sha256(activity_data.encode()).hexdigest()[:16]
+    
+    def _get_db(self) -> Session:
+        """Get database session"""
+        return SessionLocal()
+    
+    def _update_cache(self, activity: Dict[str, Any]):
+        """Update in-memory cache"""
+        self._cache.append(activity)
+        if len(self._cache) > self._cache_limit:
+            self._cache = self._cache[-self._cache_limit:]
     
     async def log_activity(
         self,
@@ -71,28 +89,53 @@ class ActivityLoggerService:
         hash_input = f"{agent_id}-{action_type}-{timestamp.isoformat()}-{message}"
         activity_hash = self.generate_hash(hash_input)
         
-        # Create activity record
-        activity = {
-            'id': f'activity-{timestamp.timestamp()}-{activity_hash[:8]}',
-            'timestamp': timestamp.isoformat(),
-            'agent_id': agent_id,
-            'action_type': action_type,
-            'severity': severity,
-            'message': message,
-            'data': activity_data,
-            'user_id': user_id,
-            'session_id': session_id,
-            'hash': activity_hash
-        }
+        # Create activity record for database
+        db_activity = ActivityLog(
+            id=f'activity-{timestamp.timestamp()}-{activity_hash[:8]}',
+            timestamp=timestamp,
+            agent_id=agent_id,
+            action_type=action_type,
+            severity=severity,
+            message=message,
+            data=activity_data,
+            user_id=user_id,
+            session_id=session_id,
+            hash=activity_hash
+        )
         
-        # Store activity (in real implementation, this would go to database)
-        self.activities.append(activity)
-        
-        # Keep only last 1000 activities for performance
-        if len(self.activities) > 1000:
-            self.activities = self.activities[-1000:]
-        
-        return activity
+        # Save to database
+        db = self._get_db()
+        try:
+            db.add(db_activity)
+            db.commit()
+            db.refresh(db_activity)
+            
+            # Convert to dict for return and cache
+            activity = db_activity.to_dict()
+            self._update_cache(activity)
+            
+            return activity
+        except Exception as e:
+            db.rollback()
+            # Log error but don't fail - fall back to cache only
+            print(f"Database error logging activity: {e}")
+            # Create dict manually as fallback
+            activity = {
+                'id': db_activity.id,
+                'timestamp': timestamp.isoformat(),
+                'agent_id': agent_id,
+                'action_type': action_type,
+                'severity': severity,
+                'message': message,
+                'data': activity_data,
+                'user_id': user_id,
+                'session_id': session_id,
+                'hash': activity_hash
+            }
+            self._update_cache(activity)
+            return activity
+        finally:
+            db.close()
     
     async def log_decision(
         self,
@@ -272,99 +315,216 @@ class ActivityLoggerService:
         severity: Optional[str] = None,
         since: Optional[datetime] = None
     ) -> list:
-        """Get filtered activities"""
-        filtered = self.activities.copy()
-        
-        # Apply filters
-        if agent_id:
-            filtered = [a for a in filtered if a['agent_id'] == agent_id]
-        if action_type:
-            filtered = [a for a in filtered if a['action_type'] == action_type]
-        if severity:
-            filtered = [a for a in filtered if a['severity'] == severity]
-        if since:
-            filtered = [a for a in filtered if datetime.fromisoformat(a['timestamp']) > since]
-        
-        # Sort by timestamp (newest first) and limit
-        filtered.sort(key=lambda x: x['timestamp'], reverse=True)
-        return filtered[:limit]
+        """Get filtered activities from database"""
+        db = self._get_db()
+        try:
+            # Start with base query
+            query = db.query(ActivityLog)
+            
+            # Apply filters
+            if agent_id:
+                query = query.filter(ActivityLog.agent_id == agent_id)
+            if action_type:
+                query = query.filter(ActivityLog.action_type == action_type)
+            if severity:
+                query = query.filter(ActivityLog.severity == severity)
+            if since:
+                query = query.filter(ActivityLog.timestamp > since)
+            
+            # Sort by timestamp (newest first) and limit
+            activities = query.order_by(ActivityLog.timestamp.desc()).limit(limit).all()
+            
+            # Convert to dictionaries
+            return [activity.to_dict() for activity in activities]
+        except Exception as e:
+            print(f"Database error getting activities: {e}")
+            # Fallback to cache on error
+            filtered = self._cache.copy()
+            
+            # Apply filters to cache
+            if agent_id:
+                filtered = [a for a in filtered if a['agent_id'] == agent_id]
+            if action_type:
+                filtered = [a for a in filtered if a['action_type'] == action_type]
+            if severity:
+                filtered = [a for a in filtered if a['severity'] == severity]
+            if since:
+                filtered = [a for a in filtered if datetime.fromisoformat(a['timestamp']) > since]
+            
+            # Sort by timestamp (newest first) and limit
+            filtered.sort(key=lambda x: x['timestamp'], reverse=True)
+            return filtered[:limit]
+        finally:
+            db.close()
     
     def get_latest_activities(self, since: datetime, limit: int = 50) -> list:
-        """Get activities since a specific timestamp"""
-        return [
-            a for a in self.activities
-            if datetime.fromisoformat(a['timestamp']) > since
-        ][:limit]
+        """Get activities since a specific timestamp from database"""
+        db = self._get_db()
+        try:
+            activities = db.query(ActivityLog).filter(
+                ActivityLog.timestamp > since
+            ).order_by(ActivityLog.timestamp.desc()).limit(limit).all()
+            
+            return [activity.to_dict() for activity in activities]
+        except Exception as e:
+            print(f"Database error getting latest activities: {e}")
+            # Fallback to cache
+            return [
+                a for a in self._cache
+                if datetime.fromisoformat(a['timestamp']) > since
+            ][:limit]
+        finally:
+            db.close()
     
     def get_activity_stats(self) -> Dict[str, Any]:
-        """Get aggregated activity statistics"""
-        if not self.activities:
+        """Get aggregated activity statistics from database"""
+        db = self._get_db()
+        try:
+            # Get all activities for stats (could optimize with SQL aggregations)
+            all_activities = db.query(ActivityLog).all()
+            
+            if not all_activities:
+                return {
+                    'total_activities': 0,
+                    'decisions': 0,
+                    'data_points': 0,
+                    'errors': 0,
+                    'avg_response_time': 0,
+                    'active_agents': 0
+                }
+            
+            # Convert to dicts for processing
+            activities_dict = [a.to_dict() for a in all_activities]
+            
+            total = len(activities_dict)
+            decisions = len([a for a in activities_dict if a['action_type'] == 'decision'])
+            data_points = len([a for a in activities_dict if a['action_type'] == 'data_collection'])
+            errors = len([a for a in activities_dict if a['severity'] == 'critical' or a['action_type'] == 'error'])
+            
+            # Calculate average execution time
+            exec_times = [
+                a['data']['execution_time'] for a in activities_dict
+                if a.get('data') and 'execution_time' in a['data']
+            ]
+            avg_exec_time = sum(exec_times) / len(exec_times) if exec_times else 0
+            
+            # Count unique agents
+            active_agents = len(set(a['agent_id'] for a in activities_dict))
+            
             return {
-                'total_activities': 0,
-                'decisions': 0,
-                'data_points': 0,
-                'errors': 0,
-                'avg_response_time': 0,
-                'active_agents': 0
+                'total_activities': total,
+                'decisions': decisions,
+                'data_points': data_points,
+                'errors': errors,
+                'avg_response_time': int(avg_exec_time),
+                'active_agents': active_agents
             }
-        
-        total = len(self.activities)
-        decisions = len([a for a in self.activities if a['action_type'] == 'decision'])
-        data_points = len([a for a in self.activities if a['action_type'] == 'data_collection'])
-        errors = len([a for a in self.activities if a['severity'] == 'critical' or a['action_type'] == 'error'])
-        
-        # Calculate average execution time
-        exec_times = [
-            a['data']['execution_time'] for a in self.activities
-            if 'execution_time' in a['data']
-        ]
-        avg_exec_time = sum(exec_times) / len(exec_times) if exec_times else 0
-        
-        # Count unique agents
-        unique_agents = len(set([a['agent_id'] for a in self.activities]))
-        
-        return {
-            'total_activities': total,
-            'decisions': decisions,
-            'data_points': data_points,
-            'errors': errors,
-            'avg_response_time': avg_exec_time,
-            'active_agents': unique_agents,
-            'timestamp': datetime.utcnow().isoformat()
-        }
+        except Exception as e:
+            print(f"Database error getting activity stats: {e}")
+            # Fallback to cache
+            if not self._cache:
+                return {
+                    'total_activities': 0,
+                    'decisions': 0,
+                    'data_points': 0,
+                    'errors': 0,
+                    'avg_response_time': 0,
+                    'active_agents': 0
+                }
+            
+            total = len(self._cache)
+            decisions = len([a for a in self._cache if a['action_type'] == 'decision'])
+            data_points = len([a for a in self._cache if a['action_type'] == 'data_collection'])
+            errors = len([a for a in self._cache if a['severity'] == 'critical' or a['action_type'] == 'error'])
+            
+            exec_times = [
+                a['data']['execution_time'] for a in self._cache
+                if 'execution_time' in a.get('data', {})
+            ]
+            avg_exec_time = sum(exec_times) / len(exec_times) if exec_times else 0
+            
+            active_agents = len(set(a['agent_id'] for a in self._cache))
+            
+            return {
+                'total_activities': total,
+                'decisions': decisions,
+                'data_points': data_points,
+                'errors': errors,
+                'avg_response_time': int(avg_exec_time),
+                'active_agents': active_agents
+            }
+        finally:
+            db.close()
     
     def verify_integrity(self) -> Dict[str, Any]:
-        """Verify integrity of all activity records"""
-        verified_count = 0
-        invalid_hashes = []
-        
-        for activity in self.activities:
-            # Recreate hash and verify
-            hash_input = f"{activity['agent_id']}-{activity['action_type']}-{activity['timestamp']}-{activity['message']}"
-            expected_hash = self.generate_hash(hash_input)
+        """Verify integrity of all activity records in database"""
+        db = self._get_db()
+        try:
+            all_activities = db.query(ActivityLog).all()
             
-            if activity['hash'] == expected_hash:
-                verified_count += 1
-            else:
-                invalid_hashes.append(activity['id'])
-        
-        total_records = len(self.activities)
-        integrity_percentage = (verified_count / total_records * 100) if total_records > 0 else 100
-        
-        # Generate system hash
-        all_hashes = [a['hash'] for a in self.activities]
-        system_hash = self.generate_hash(''.join(all_hashes))
-        
-        return {
-            'status': 'verified' if len(invalid_hashes) == 0 else 'compromised',
-            'total_records': total_records,
-            'verified_records': verified_count,
-            'invalid_records': len(invalid_hashes),
-            'integrity_percentage': round(integrity_percentage, 2),
-            'system_hash': system_hash,
-            'verification_timestamp': datetime.utcnow().isoformat(),
-            'invalid_hashes': invalid_hashes[:10]
-        }
+            verified_count = 0
+            invalid_hashes = []
+            
+            for activity in all_activities:
+                # Recreate hash and verify
+                hash_input = f"{activity.agent_id}-{activity.action_type}-{activity.timestamp.isoformat()}-{activity.message}"
+                expected_hash = self.generate_hash(hash_input)
+                
+                if activity.hash == expected_hash:
+                    verified_count += 1
+                else:
+                    invalid_hashes.append(activity.id)
+            
+            total_records = len(all_activities)
+            integrity_percentage = (verified_count / total_records * 100) if total_records > 0 else 100
+            
+            # Generate system hash
+            all_hashes = [a.hash for a in all_activities]
+            system_hash = self.generate_hash(''.join(all_hashes))
+            
+            return {
+                'status': 'verified' if len(invalid_hashes) == 0 else 'compromised',
+                'total_records': total_records,
+                'verified_records': verified_count,
+                'invalid_records': len(invalid_hashes),
+                'integrity_percentage': round(integrity_percentage, 2),
+                'system_hash': system_hash,
+                'verification_timestamp': datetime.utcnow().isoformat(),
+                'invalid_hashes': invalid_hashes[:10]
+            }
+        except Exception as e:
+            print(f"Database error verifying integrity: {e}")
+            # Fallback to cache
+            verified_count = 0
+            invalid_hashes = []
+            
+            for activity in self._cache:
+                hash_input = f"{activity['agent_id']}-{activity['action_type']}-{activity['timestamp']}-{activity['message']}"
+                expected_hash = self.generate_hash(hash_input)
+                
+                if activity['hash'] == expected_hash:
+                    verified_count += 1
+                else:
+                    invalid_hashes.append(activity['id'])
+            
+            total_records = len(self._cache)
+            integrity_percentage = (verified_count / total_records * 100) if total_records > 0 else 100
+            
+            all_hashes = [a['hash'] for a in self._cache]
+            system_hash = self.generate_hash(''.join(all_hashes))
+            
+            return {
+                'status': 'verified' if len(invalid_hashes) == 0 else 'compromised',
+                'total_records': total_records,
+                'verified_records': verified_count,
+                'invalid_records': len(invalid_hashes),
+                'integrity_percentage': round(integrity_percentage, 2),
+                'system_hash': system_hash,
+                'verification_timestamp': datetime.utcnow().isoformat(),
+                'invalid_hashes': invalid_hashes[:10]
+            }
+        finally:
+            db.close()
 
 # Global activity logger instance
 activity_logger = ActivityLoggerService()

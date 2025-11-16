@@ -1,9 +1,7 @@
 from sqlalchemy import Column, String, DateTime, Text, JSON, Integer
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import uuid
-
-Base = declarative_base()
+from app.database import Base
 
 class ActivityLog(Base):
     """

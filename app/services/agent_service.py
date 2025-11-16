@@ -1,21 +1,34 @@
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+"""
+Agent Service
+Manages AI agents in the system with database persistence
+"""
+
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from app.database import SessionLocal, engine
+from app.models.agent import Agent, AgentStatus, AgentType, Base
 from app.services.base_service import BaseService
 
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+
 class AgentService(BaseService):
-    """
-    Service for managing AI agent information and status.
-    """
+    """Service for managing AI agents with database persistence"""
     
     def __init__(self):
         super().__init__("AgentService")
-        self.agents = {}
-        self._initialize_demo_agents()
+    
+    def _get_db(self) -> Session:
+        """Get database session"""
+        return SessionLocal()
     
     def initialize(self) -> bool:
         """Initialize the agent service"""
         try:
-            self.log_info("Initializing agent service")
+            self.log_info("Initializing agent service with database")
             return True
         except Exception as e:
             self.log_error(f"Failed to initialize agent service: {e}")
@@ -23,191 +36,257 @@ class AgentService(BaseService):
     
     def health_check(self) -> bool:
         """Check if the service is healthy"""
-        return len(self.agents) > 0
+        try:
+            db = self._get_db()
+            count = db.query(Agent).count()
+            db.close()
+            return True
+        except:
+            return False
     
     def cleanup(self) -> bool:
         """Cleanup service resources"""
-        self.agents.clear()
         return True
     
-    def register_agent(self, agent_id: str, agent_info: Dict[str, Any]) -> bool:
-        """
-        Register a new agent or update existing agent info.
-        
-        Args:
-            agent_id: Unique agent identifier
-            agent_info: Agent information dictionary
-            
-        Returns:
-            True if registration successful
-        """
+    def create_agent(
+        self,
+        name: str,
+        agent_type: str = AgentType.GENERAL.value,
+        description: Optional[str] = None,
+        capabilities: Optional[List[str]] = None,
+        configuration: Optional[Dict[str, Any]] = None,
+        owner: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Create a new agent"""
+        db = self._get_db()
         try:
-            agent_data = {
-                "id": agent_id,
-                "name": agent_info.get("name", f"Agent {agent_id}"),
-                "type": agent_info.get("type", "unknown"),
-                "status": agent_info.get("status", "active"),
-                "version": agent_info.get("version", "1.0.0"),
-                "capabilities": agent_info.get("capabilities", []),
-                "last_seen": datetime.utcnow().isoformat(),
-                "registered_at": agent_info.get("registered_at", datetime.utcnow().isoformat()),
-                "metadata": agent_info.get("metadata", {})
-            }
+            agent = Agent(
+                name=name,
+                agent_type=agent_type,
+                description=description,
+                capabilities=capabilities or [],
+                configuration=configuration or {},
+                status=AgentStatus.ACTIVE.value,
+                owner=owner,
+                tags=tags or [],
+                is_enabled=True
+            )
             
-            self.agents[agent_id] = agent_data
-            self.log_info(f"Agent {agent_id} registered successfully")
-            return True
+            db.add(agent)
+            db.commit()
+            db.refresh(agent)
             
+            self.log_info(f"Created agent: {name} ({agent.id})")
+            return agent.to_dict()
         except Exception as e:
-            self.log_error(f"Failed to register agent {agent_id}: {e}")
-            return False
-    
-    def update_agent_status(self, agent_id: str, status: str, metadata: Dict[str, Any] = None) -> bool:
-        """
-        Update agent status and metadata.
-        
-        Args:
-            agent_id: Agent identifier
-            status: New status
-            metadata: Optional metadata update
-            
-        Returns:
-            True if update successful
-        """
-        if agent_id not in self.agents:
-            self.log_warning(f"Agent {agent_id} not found for status update")
-            return False
-        
-        self.agents[agent_id]["status"] = status
-        self.agents[agent_id]["last_seen"] = datetime.utcnow().isoformat()
-        
-        if metadata:
-            self.agents[agent_id]["metadata"].update(metadata)
-        
-        self.log_info(f"Agent {agent_id} status updated to {status}")
-        return True
+            db.rollback()
+            self.log_error(f"Failed to create agent: {str(e)}")
+            raise Exception(f"Failed to create agent: {str(e)}")
+        finally:
+            db.close()
     
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Get specific agent information"""
-        return self.agents.get(agent_id)
+        """Get agent by ID"""
+        db = self._get_db()
+        try:
+            agent = db.query(Agent).filter(Agent.id == agent_id).first()
+            return agent.to_dict() if agent else None
+        finally:
+            db.close()
     
-    def get_all_agents(self) -> List[Dict[str, Any]]:
-        """Get all registered agents"""
-        return list(self.agents.values())
+    def get_agent_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get agent by name"""
+        db = self._get_db()
+        try:
+            agent = db.query(Agent).filter(Agent.name == name).first()
+            return agent.to_dict() if agent else None
+        finally:
+            db.close()
     
-    def get_active_agents(self) -> List[Dict[str, Any]]:
-        """Get all active agents"""
-        return [agent for agent in self.agents.values() if agent["status"] == "active"]
-    
-    def remove_agent(self, agent_id: str) -> bool:
-        """
-        Remove an agent from registry.
-        
-        Args:
-            agent_id: Agent identifier
+    def get_all_agents(
+        self,
+        status: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        is_enabled: Optional[bool] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get all agents with optional filters"""
+        db = self._get_db()
+        try:
+            query = db.query(Agent)
             
-        Returns:
-            True if removal successful
-        """
-        if agent_id in self.agents:
-            del self.agents[agent_id]
-            self.log_info(f"Agent {agent_id} removed from registry")
-            return True
-        return False
+            # Apply filters
+            if status:
+                query = query.filter(Agent.status == status)
+            if agent_type:
+                query = query.filter(Agent.agent_type == agent_type)
+            if is_enabled is not None:
+                query = query.filter(Agent.is_enabled == is_enabled)
+            
+            # Order by last_active descending, then by name
+            query = query.order_by(Agent.last_active.desc().nullslast(), Agent.name)
+            
+            agents = query.limit(limit).all()
+            return [agent.to_dict() for agent in agents]
+        finally:
+            db.close()
     
-    def get_agent_statistics(self) -> Dict[str, Any]:
-        """Get agent statistics"""
-        total_agents = len(self.agents)
-        status_counts = {}
-        type_counts = {}
-        
-        for agent in self.agents.values():
-            # Count by status
-            status = agent["status"]
-            status_counts[status] = status_counts.get(status, 0) + 1
+    def update_agent(
+        self,
+        agent_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        status: Optional[str] = None,
+        capabilities: Optional[List[str]] = None,
+        configuration: Optional[Dict[str, Any]] = None,
+        is_enabled: Optional[bool] = None,
+        owner: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Update an existing agent"""
+        db = self._get_db()
+        try:
+            agent = db.query(Agent).filter(Agent.id == agent_id).first()
+            
+            if not agent:
+                return None
+            
+            # Update fields if provided
+            if name is not None:
+                agent.name = name
+            if description is not None:
+                agent.description = description
+            if agent_type is not None:
+                agent.agent_type = agent_type
+            if status is not None:
+                agent.status = status
+            if capabilities is not None:
+                agent.capabilities = capabilities
+            if configuration is not None:
+                agent.configuration = configuration
+            if is_enabled is not None:
+                agent.is_enabled = is_enabled
+            if owner is not None:
+                agent.owner = owner
+            if tags is not None:
+                agent.tags = tags
+            
+            agent.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(agent)
+            
+            self.log_info(f"Updated agent: {agent.name} ({agent_id})")
+            return agent.to_dict()
+        except Exception as e:
+            db.rollback()
+            self.log_error(f"Failed to update agent: {str(e)}")
+            raise Exception(f"Failed to update agent: {str(e)}")
+        finally:
+            db.close()
+    
+    def delete_agent(self, agent_id: str) -> bool:
+        """Delete an agent"""
+        db = self._get_db()
+        try:
+            agent = db.query(Agent).filter(Agent.id == agent_id).first()
+            
+            if not agent:
+                return False
+            
+            db.delete(agent)
+            db.commit()
+            
+            self.log_info(f"Deleted agent: {agent.name} ({agent_id})")
+            return True
+        except Exception as e:
+            db.rollback()
+            self.log_error(f"Failed to delete agent: {str(e)}")
+            raise Exception(f"Failed to delete agent: {str(e)}")
+        finally:
+            db.close()
+    
+    def update_agent_activity(
+        self,
+        agent_id: str,
+        activities: int = 1,
+        errors: int = 0
+    ) -> Optional[Dict[str, Any]]:
+        """Update agent activity statistics"""
+        db = self._get_db()
+        try:
+            agent = db.query(Agent).filter(Agent.id == agent_id).first()
+            
+            if not agent:
+                return None
+            
+            agent.update_stats(activities=activities, errors=errors)
+            agent.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(agent)
+            
+            return agent.to_dict()
+        except Exception as e:
+            db.rollback()
+            self.log_error(f"Failed to update agent activity: {str(e)}")
+            raise Exception(f"Failed to update agent activity: {str(e)}")
+        finally:
+            db.close()
+    
+    def get_agent_stats(self) -> Dict[str, Any]:
+        """Get aggregated agent statistics"""
+        db = self._get_db()
+        try:
+            all_agents = db.query(Agent).all()
+            
+            total_agents = len(all_agents)
+            active_agents = len([a for a in all_agents if a.status == AgentStatus.ACTIVE.value])
+            inactive_agents = len([a for a in all_agents if a.status == AgentStatus.INACTIVE.value])
+            error_agents = len([a for a in all_agents if a.status == AgentStatus.ERROR.value])
             
             # Count by type
-            agent_type = agent["type"]
-            type_counts[agent_type] = type_counts.get(agent_type, 0) + 1
-        
-        return {
-            "total_agents": total_agents,
-            "status_breakdown": status_counts,
-            "type_breakdown": type_counts,
-            "last_updated": datetime.utcnow().isoformat()
-        }
-    
-    def _initialize_demo_agents(self):
-        """Initialize demo agents for testing"""
-        demo_agents = [
-            {
-                "id": "agent_001",
-                "name": "Data Collection Agent",
-                "type": "data_collector",
-                "status": "active",
-                "version": "1.2.0",
-                "capabilities": ["data_mining", "log_parsing", "metric_collection"],
-                "metadata": {
-                    "cpu_usage": 45.2,
-                    "memory_usage": 512,
-                    "tasks_completed": 1250
-                }
-            },
-            {
-                "id": "agent_002", 
-                "name": "Monitoring Agent",
-                "type": "monitor",
-                "status": "active",
-                "version": "1.1.5",
-                "capabilities": ["system_monitoring", "alert_generation", "health_checks"],
-                "metadata": {
-                    "cpu_usage": 23.8,
-                    "memory_usage": 256,
-                    "alerts_sent": 45
-                }
-            },
-            {
-                "id": "agent_003",
-                "name": "Analysis Agent", 
-                "type": "analyzer",
-                "status": "idle",
-                "version": "1.0.8",
-                "capabilities": ["pattern_analysis", "anomaly_detection", "report_generation"],
-                "metadata": {
-                    "cpu_usage": 15.3,
-                    "memory_usage": 1024,
-                    "analyses_completed": 89
-                }
-            },
-            {
-                "id": "agent_004",
-                "name": "Security Agent",
-                "type": "security", 
-                "status": "active",
-                "version": "1.3.2",
-                "capabilities": ["threat_detection", "vulnerability_scanning", "incident_response"],
-                "metadata": {
-                    "cpu_usage": 67.1,
-                    "memory_usage": 768,
-                    "threats_detected": 12
-                }
-            },
-            {
-                "id": "agent_005",
-                "name": "Compliance Agent",
-                "type": "compliance",
-                "status": "active", 
-                "version": "1.1.0",
-                "capabilities": ["compliance_checking", "audit_trail", "policy_enforcement"],
-                "metadata": {
-                    "cpu_usage": 34.5,
-                    "memory_usage": 384,
-                    "violations_found": 3
-                }
+            type_counts = {}
+            for agent_type in AgentType:
+                type_counts[agent_type.value] = len([a for a in all_agents if a.agent_type == agent_type.value])
+            
+            total_activities = sum(a.total_activities for a in all_agents)
+            total_errors = sum(a.total_errors for a in all_agents)
+            avg_success_rate = sum(a.success_rate for a in all_agents) / total_agents if total_agents > 0 else 100
+            
+            return {
+                'total_agents': total_agents,
+                'active_agents': active_agents,
+                'inactive_agents': inactive_agents,
+                'error_agents': error_agents,
+                'agents_by_type': type_counts,
+                'total_activities': total_activities,
+                'total_errors': total_errors,
+                'avg_success_rate': round(avg_success_rate, 2)
             }
-        ]
-        
-        for agent_data in demo_agents:
-            agent_data["registered_at"] = datetime.utcnow().isoformat()
-            agent_data["last_seen"] = datetime.utcnow().isoformat()
-            self.agents[agent_data["id"]] = agent_data
+        finally:
+            db.close()
+    
+    def search_agents(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search agents by name or description"""
+        db = self._get_db()
+        try:
+            agents = db.query(Agent).filter(
+                or_(
+                    Agent.name.contains(query),
+                    Agent.description.contains(query)
+                )
+            ).limit(limit).all()
+            
+            return [agent.to_dict() for agent in agents]
+        finally:
+            db.close()
+
+
+# Global agent service instance
+agent_service = AgentService()
+
+# Global agent service instance
+agent_service = AgentService()
