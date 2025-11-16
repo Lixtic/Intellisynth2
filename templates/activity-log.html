@@ -250,7 +250,7 @@
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-semibold text-white">Agent Activity Distribution</h3>
                     <div class="text-sm text-slate-400">
-                        Last updated: <span id="chart-last-last-updated">just now</span>
+                        Last updated: <span id="chart-last-updated">just now</span>
                     </div>
                 </div>
                 <div class="h-64">
@@ -318,104 +318,8 @@
             <p class="text-white">Processing activity logs...</p>
         </div>
     </div>
-                // Add more sample anomalies
-            ],
-            metrics: {
-                cpu_usage: 45,
-                memory_usage: 68,
-                error_rate: 0.02,
-                active_agents: 11,
-                tasks_completed: 1847,
-                compliance_score: 89
-            },
-            appInfo: {
-                version: '1.0.0',
-                uptime: '99.9%',
-                api_endpoints: 18,
-                last_check: '5 min ago'
-            }
-        };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const chatbotToggle = document.getElementById('chatbot-toggle');
-            const chatbotWindow = document.getElementById('chatbot-window');
-            const chatbotClose = document.getElementById('chatbot-close');
-            const chatSend = document.getElementById('chat-send');
-            const chatInput = document.getElementById('chat-input');
-            const chatMessages = document.getElementById('chat-messages');
+    <script src="/static/activity-log.js"></script>
 
-            chatbotToggle.addEventListener('click', () => {
-                chatbotWindow.classList.toggle('hidden');
-            });
-
-            chatbotClose.addEventListener('click', () => {
-                chatbotWindow.classList.add('hidden');
-            });
-
-            chatSend.addEventListener('click', sendMessage);
-            chatInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-
-            // Initial welcome message
-            addMessage('AI', 'Hello! I\'m the Data Analyst Assistant. Ask me about logs, anomalies, metrics, or app information.');
-
-            function sendMessage() {
-                const message = chatInput.value.trim();
-                if (!message) return;
-
-                addMessage('User', message);
-                chatInput.value = '';
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-
-                // Show loading indicator
-                addMessage('AI', '<span class="italic text-slate-400">Thinking...</span>');
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-
-                // Send to backend
-                fetch('/api/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ message })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    // Remove the loading indicator
-                    removeLastMessageIfLoading();
-                    if (data && data.response) {
-                        addMessage('AI', data.response);
-                    } else {
-                        addMessage('AI', 'Sorry, I did not get a valid response from the server.');
-                    }
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                })
-                .catch(error => {
-                    removeLastMessageIfLoading();
-                    addMessage('AI', 'Error contacting the server.');
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                });
-            }
-
-            function addMessage(sender, content) {
-                const msgDiv = document.createElement('div');
-                msgDiv.classList.add('flex', sender === 'User' ? 'justify-end' : 'justify-start');
-                const bubbleClass = sender === 'User' ? 'bg-accent-blue text-white' : 'bg-slate-700 text-white';
-                msgDiv.innerHTML = `<div class="${bubbleClass} px-4 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap">${content}</div>`;
-                chatMessages.appendChild(msgDiv);
-            }
-
-            function removeLastMessageIfLoading() {
-                // Remove the last message if it is the loading indicator
-                const lastMsg = chatMessages.lastElementChild;
-                if (lastMsg && lastMsg.textContent.includes('Thinking...')) {
-                    chatMessages.removeChild(lastMsg);
-                }
-            }
-        });
-    </script>
 </body>
 </html>
