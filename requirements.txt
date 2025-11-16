@@ -7,9 +7,13 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Database
+# Database - SQL
 sqlalchemy==2.0.23
 alembic==1.12.1
+
+# Database - Firebase
+firebase-admin==6.3.0
+google-cloud-firestore==2.14.0
 
 # Template Engine
 jinja2==3.1.2
