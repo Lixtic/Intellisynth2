@@ -66,7 +66,10 @@ class ActivityLogger {
 
     updateSystemTime() {
         const now = new Date();
-        document.getElementById('system-time').textContent = now.toLocaleString();
+        const systemTimeEl = document.getElementById('system-time');
+        if (systemTimeEl) {
+            systemTimeEl.textContent = now.toLocaleString();
+        }
         setTimeout(() => this.updateSystemTime(), 1000);
     }
 
@@ -539,7 +542,10 @@ class ActivityLogger {
     updateCharts() {
         this.updateTimelineChart();
         this.updateDistributionChart();
-        document.getElementById('chart-last-updated').textContent = 'just now';
+        const chartLastUpdatedEl = document.getElementById('chart-last-updated');
+        if (chartLastUpdatedEl) {
+            chartLastUpdatedEl.textContent = 'just now';
+        }
     }
 
     updateTimelineChart() {
@@ -589,7 +595,10 @@ class ActivityLogger {
 
     updateLastUpdateTime() {
         const now = new Date();
-        document.getElementById('last-update').textContent = now.toLocaleTimeString();
+        const lastUpdateEl = document.getElementById('last-update');
+        if (lastUpdateEl) {
+            lastUpdateEl.textContent = now.toLocaleTimeString();
+        }
     }
 
     showActivityDetails(activityId) {
