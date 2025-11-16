@@ -23,6 +23,9 @@ from app.models.compliance_rule import (
 
 # Import activity logger service
 from app.services.activity_logger import activity_logger
+from app.services.compliance_rule_service_firestore import (
+    compliance_rule_firestore_service,
+)
 
 # Database dependency
 def get_db():
@@ -110,17 +113,58 @@ def _get_or_seed_compliance_rules(db: Session) -> List[ComplianceRule]:
     )
 
 
-def _build_compliance_rules_response(db: Session) -> Dict[str, Any]:
+async def _build_compliance_rules_response(db: Session) -> Dict[str, Any]:
     rules = _get_or_seed_compliance_rules(db)
     active_count = sum(1 for rule in rules if rule.status == RuleStatus.ACTIVE)
     coverage = round((active_count / len(rules)) * 100, 1) if rules else 0.0
-    return {
+    response = {
         "rules": [_serialize_compliance_rule(rule) for rule in rules],
         "total_count": len(rules),
         "active_count": active_count,
         "coverage_percentage": coverage,
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+    try:
+        await compliance_rule_firestore_service.sync_rules(response["rules"])
+    except Exception as sync_error:  # pragma: no cover - defensive logging
+        logger.warning("Unable to sync compliance rules to Firestore: %s", sync_error)
+
+    return response
+
+
+def _apply_rule_updates(rule: ComplianceRule, payload: Dict[str, Any]) -> None:
+    if "name" in payload:
+        rule.name = payload["name"] or rule.name
+    if "description" in payload:
+        rule.description = payload["description"] or rule.description
+    if "type" in payload or "rule_type" in payload:
+        rule.rule_type = _safe_enum_value(
+            RuleType,
+            payload.get("type") or payload.get("rule_type"),
+            rule.rule_type or RuleType.CUSTOM,
+        )
+    if "severity" in payload:
+        rule.severity = _safe_enum_value(SeverityLevel, payload["severity"], rule.severity)
+    if "status" in payload:
+        rule.status = _safe_enum_value(RuleStatus, payload["status"], rule.status)
+    if "conditions" in payload:
+        rule.conditions = payload["conditions"]
+    if "parameters" in payload:
+        rule.parameters = payload["parameters"]
+    if "framework" in payload:
+        rule.framework = payload["framework"]
+    if "regulation_reference" in payload:
+        rule.regulation_reference = payload["regulation_reference"]
+    if "is_automated" in payload:
+        rule.is_automated = bool(payload["is_automated"])
+    if "priority" in payload:
+        try:
+            rule.priority = int(payload["priority"])
+        except (TypeError, ValueError):
+            pass
+    rule.updated_at = datetime.utcnow()
+    rule.updated_by = payload.get("updated_by", "compliance_ui")
 
 # Pydantic models for activity logging
 class ActivityLogCreate(BaseModel):
@@ -746,14 +790,14 @@ async def get_compliance_violations():
          description="Get all compliance rules with their status and violation counts")
 async def get_compliance_rules(db: Session = Depends(get_db)):
     """Get compliance rules for management interface"""
-    return _build_compliance_rules_response(db)
+    return await _build_compliance_rules_response(db)
 
 @app.get("/api/rules", tags=["🔍 Audit & Compliance"],
          summary="Rules List",
          description="Get compliance rules list (compatibility endpoint)")
 async def get_rules(db: Session = Depends(get_db)):
     """Get compliance rules - compatibility endpoint for frontend"""
-    return _build_compliance_rules_response(db)
+    return await _build_compliance_rules_response(db)
 
 @app.post("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
           summary="Add Compliance Rule",
@@ -789,11 +833,67 @@ async def create_compliance_rule(rule_data: dict, db: Session = Depends(get_db))
     db.add(new_rule)
     db.commit()
     db.refresh(new_rule)
+
+    serialized_rule = _serialize_compliance_rule(new_rule)
+    try:
+        await compliance_rule_firestore_service.sync_rule(serialized_rule)
+    except Exception as sync_error:  # pragma: no cover - defensive logging
+        logger.warning("Unable to sync new compliance rule to Firestore: %s", sync_error)
     
     return {
         "success": True,
-        "rule": _serialize_compliance_rule(new_rule),
+        "rule": serialized_rule,
         "message": f"Compliance rule '{new_rule.name}' created successfully"
+    }
+
+
+@app.put("/api/compliance/rules/{rule_id}", tags=["🔍 Audit & Compliance"],
+         summary="Update Compliance Rule",
+         description="Modify an existing compliance rule configuration")
+async def update_compliance_rule(rule_id: str, rule_data: dict, db: Session = Depends(get_db)):
+    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
+    _apply_rule_updates(rule, rule_data)
+    db.commit()
+    db.refresh(rule)
+    serialized_rule = _serialize_compliance_rule(rule)
+    try:
+        await compliance_rule_firestore_service.sync_rule(serialized_rule)
+    except Exception as sync_error:  # pragma: no cover
+        logger.warning("Unable to sync updated compliance rule to Firestore: %s", sync_error)
+    return {
+        "success": True,
+        "rule": serialized_rule,
+        "message": f"Compliance rule '{rule.name}' updated successfully"
+    }
+
+
+@app.put("/api/compliance/rules/{rule_id}/toggle", tags=["🔍 Audit & Compliance"],
+         summary="Toggle Compliance Rule",
+         description="Pause or resume a compliance rule by toggling its status")
+async def toggle_compliance_rule(rule_id: str, db: Session = Depends(get_db)):
+    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
+    if rule.status == RuleStatus.ACTIVE:
+        rule.status = RuleStatus.INACTIVE
+    else:
+        rule.status = RuleStatus.ACTIVE
+    rule.updated_at = datetime.utcnow()
+    rule.updated_by = "compliance_ui"
+    db.commit()
+    db.refresh(rule)
+    action = "paused" if rule.status == RuleStatus.INACTIVE else "resumed"
+    serialized_rule = _serialize_compliance_rule(rule)
+    try:
+        await compliance_rule_firestore_service.sync_rule(serialized_rule)
+    except Exception as sync_error:  # pragma: no cover
+        logger.warning("Unable to sync toggled compliance rule to Firestore: %s", sync_error)
+    return {
+        "success": True,
+        "rule": serialized_rule,
+        "message": f"Compliance rule '{rule.name}' {action}",
     }
 
 @app.put("/api/compliance/violations/{violation_id}/resolve", tags=["🔍 Audit & Compliance"],
@@ -946,11 +1046,14 @@ async def get_dashboard_data():
     Get comprehensive dashboard data combining metrics, agents, alerts, and system status.
     Perfect for real-time dashboard updates with all necessary information.
     """
+    health_data = await health()
+    status_label = (health_data.get("status") or "UNKNOWN").upper()
+
     dashboard_data = {
         "system_status": {
-            "status": "UNKNOWN",
-            "version": "0.0.0",
-            "uptime": "0%",
+            "status": status_label,
+            "version": health_data.get("version", "1.0.0"),
+            "uptime": health_data.get("uptime", "99.9%"),
             "last_update": datetime.utcnow().isoformat()
         },
         "metrics": {

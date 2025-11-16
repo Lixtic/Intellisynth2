@@ -6,7 +6,10 @@ class ComplianceManager {
         this.violations = [];
         this.rules = [];
         this.charts = {};
-    this.currentTrendDays = 30;
+        this.currentTrendDays = 30;
+        this.ruleFormMode = 'create';
+        this.editingRuleId = null;
+        this.ruleFilters = { query: '', status: 'all' };
         
         this.init();
     }
@@ -66,12 +69,13 @@ class ComplianceManager {
             // Update UI
             this.updateComplianceOverview(violationsData);
             this.updateViolationsList(violationsData);
-            this.updateRulesList(rulesData);
             this.updateRecentActivity(activityData);
             
             // Store data
             this.violations = violationsData.violations || [];
-            this.rules = rulesData.rules || [];
+            this.rules = Array.isArray(rulesData.rules) ? rulesData.rules : [];
+            this.updateRuleStats(rulesData);
+            this.renderFilteredRules();
             
         } catch (error) {
             console.error('❌ Error loading compliance data:', error);
@@ -272,10 +276,11 @@ class ComplianceManager {
                 rulesList.appendChild(ruleElement);
             });
         } else {
+            const hasFilters = this.ruleFilters.query || this.ruleFilters.status !== 'all';
             rulesList.innerHTML = `
                 <div class="text-slate-400 text-center py-6 border border-dashed border-slate-700 rounded-lg">
-                    <p class="text-lg font-medium mb-2">No compliance rules to display</p>
-                    <p class="text-sm">Use the "Add Rule" button to configure your first policy.</p>
+                    <p class="text-lg font-medium mb-2">${hasFilters ? 'No rules match the current filters' : 'No compliance rules to display'}</p>
+                    <p class="text-sm">${hasFilters ? 'Try adjusting the search or status filter.' : 'Use the "Add Rule" button to configure your first policy.'}</p>
                 </div>
             `;
         }
@@ -285,12 +290,6 @@ class ComplianceManager {
         const div = document.createElement('div');
         div.className = 'bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 hover:bg-slate-800/70 transition-all';
         
-        const statusColors = {
-            'ACTIVE': 'text-green-400',
-            'INACTIVE': 'text-slate-400',
-            'DISABLED': 'text-red-400'
-        };
-        
         const typeIcons = {
             'data_retention': 'fas fa-archive',
             'access_control': 'fas fa-lock',
@@ -298,29 +297,48 @@ class ComplianceManager {
             'audit_logging': 'fas fa-file-alt',
             'backup_policy': 'fas fa-save'
         };
+
+        const severityPills = {
+            'LOW': 'bg-green-500/20 text-green-300',
+            'MEDIUM': 'bg-yellow-500/20 text-yellow-300',
+            'HIGH': 'bg-red-500/20 text-red-300',
+            'CRITICAL': 'bg-red-600/30 text-red-200'
+        };
+
+        const statusBadges = {
+            'ACTIVE': 'bg-green-500/20 text-green-200 border border-green-500/30',
+            'INACTIVE': 'bg-slate-600/40 text-slate-200 border border-slate-500/50',
+            'DISABLED': 'bg-red-500/20 text-red-200 border border-red-500/40'
+        };
+
+        const ruleType = (rule.type || rule.rule_type || '').toLowerCase();
+        const severityLabel = (rule.severity || '').toUpperCase();
+        const lastCheck = rule.last_check || rule.last_check_date || 'Not checked yet';
+        const statusLabel = (rule.status || 'UNKNOWN').toUpperCase();
         
         div.innerHTML = `
             <div class="flex items-start justify-between">
                 <div class="flex-1">
                     <div class="flex items-center space-x-3 mb-2">
-                        <i class="${typeIcons[rule.type] || 'fas fa-cog'} text-blue-400"></i>
+                        <i class="${typeIcons[ruleType] || 'fas fa-cog'} text-blue-400"></i>
                         <h4 class="text-white font-medium">${rule.name}</h4>
-                        <span class="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded">${rule.severity}</span>
+                        <span class="px-2 py-1 ${severityPills[severityLabel] || 'bg-slate-700 text-slate-300'} text-xs rounded">${severityLabel || 'N/A'}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusBadges[statusLabel] || 'bg-slate-700 text-slate-200 border border-slate-600'}">${statusLabel}</span>
                     </div>
                     <p class="text-sm text-slate-400 mb-2">${rule.description}</p>
-                    <div class="flex items-center space-x-4 text-xs text-slate-500">
-                        <span>Last check: ${rule.last_check}</span>
-                        <span>Violations: ${rule.violations_count || 0}</span>
-                        <span class="${statusColors[rule.status]}">${rule.status}</span>
+                    <div class="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                        <span><i class="fas fa-clock mr-1"></i>Last check: ${lastCheck}</span>
+                        <span><i class="fas fa-bolt mr-1"></i>Violations: ${rule.violations_count || 0}</span>
+                        ${rule.framework ? `<span><i class="fas fa-layer-group mr-1"></i>${rule.framework}</span>` : ''}
                     </div>
                 </div>
                 <div class="flex space-x-2 ml-4">
                     <button onclick="editRule('${rule.id}')" 
-                            class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition-all">
+                            class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition-all" title="Edit rule">
                         <i class="fas fa-edit"></i>
                     </button>
                     <button onclick="toggleRule('${rule.id}')" 
-                            class="bg-slate-600 hover:bg-slate-500 px-2 py-1 rounded text-xs transition-all">
+                            class="bg-slate-600 hover:bg-slate-500 px-2 py-1 rounded text-xs transition-all" title="${rule.status === 'ACTIVE' ? 'Pause' : 'Resume'} rule">
                         <i class="fas ${rule.status === 'ACTIVE' ? 'fa-pause' : 'fa-play'}"></i>
                     </button>
                 </div>
@@ -554,23 +572,46 @@ class ComplianceManager {
         });
         
         // Rule search
-        document.getElementById('rule-search').addEventListener('input', (e) => {
-            this.searchRules(e.target.value);
-        });
-        
-        // Add rule form
-        document.getElementById('add-rule-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.submitNewRule();
-        });
+        const ruleSearch = document.getElementById('rule-search');
+        if (ruleSearch) {
+            ruleSearch.addEventListener('input', (e) => {
+                this.searchRules(e.target.value);
+            });
+        }
 
-    // Trend range buttons
-    const btn7 = document.getElementById('btn-trend-7d');
-    const btn30 = document.getElementById('btn-trend-30d');
-    const btn90 = document.getElementById('btn-trend-90d');
-    if (btn7) btn7.addEventListener('click', () => this.setTrendRange(7));
-    if (btn30) btn30.addEventListener('click', () => this.setTrendRange(30));
-    if (btn90) btn90.addEventListener('click', () => this.setTrendRange(90));
+        const ruleStatusFilter = document.getElementById('rule-status-filter');
+        if (ruleStatusFilter) {
+            ruleStatusFilter.addEventListener('change', (e) => {
+                this.ruleFilters.status = e.target.value;
+                this.renderFilteredRules();
+            });
+        }
+        
+        // Add/edit rule form
+        const ruleForm = document.getElementById('add-rule-form');
+        if (ruleForm) {
+            ruleForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.submitRuleForm();
+            });
+        }
+
+        // Trend range buttons
+        const btn7 = document.getElementById('btn-trend-7d');
+        const btn30 = document.getElementById('btn-trend-30d');
+        const btn90 = document.getElementById('btn-trend-90d');
+        if (btn7) btn7.addEventListener('click', () => this.setTrendRange(7));
+        if (btn30) btn30.addEventListener('click', () => this.setTrendRange(30));
+        if (btn90) btn90.addEventListener('click', () => this.setTrendRange(90));
+
+        // Schedule audit form
+        const scheduleAuditForm = document.getElementById('schedule-audit-form');
+        if (scheduleAuditForm) {
+            scheduleAuditForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.submitScheduleAuditForm();
+            });
+        }
     }
 
     filterViolations(severity) {
@@ -580,11 +621,22 @@ class ComplianceManager {
     }
 
     searchRules(query) {
-        const rules = query ? this.rules.filter(r => 
-            r.name.toLowerCase().includes(query.toLowerCase()) ||
-            r.description.toLowerCase().includes(query.toLowerCase())
-        ) : this.rules;
-        this.updateRulesList({ rules });
+        this.ruleFilters.query = query.trim();
+        this.renderFilteredRules();
+    }
+
+    renderFilteredRules() {
+        const query = this.ruleFilters.query.toLowerCase();
+        const statusFilter = (this.ruleFilters.status || 'all').toUpperCase();
+        const filtered = this.rules.filter(rule => {
+            const name = (rule.name || '').toLowerCase();
+            const description = (rule.description || '').toLowerCase();
+            const status = (rule.status || '').toUpperCase();
+            const matchesQuery = !query || name.includes(query) || description.includes(query);
+            const matchesStatus = statusFilter === 'ALL' || status === statusFilter;
+            return matchesQuery && matchesStatus;
+        });
+        this.updateRulesList({ rules: filtered });
     }
 
     // Global action functions
@@ -624,7 +676,43 @@ class ComplianceManager {
     }
 
     scheduleAudit() {
-        this.showNotification('Audit scheduled for next business day', 'success');
+        this.openScheduleAuditModal();
+    }
+
+    openScheduleAuditModal() {
+        const modal = document.getElementById('schedule-audit-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+
+    closeScheduleAuditModal() {
+        const modal = document.getElementById('schedule-audit-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        const form = document.getElementById('schedule-audit-form');
+        if (form) {
+            form.reset();
+        }
+    }
+
+    submitScheduleAuditForm() {
+        const dateInput = document.getElementById('audit-date');
+        const timeInput = document.getElementById('audit-time');
+        const notesInput = document.getElementById('audit-notes');
+
+        const date = dateInput ? dateInput.value : '';
+        const time = timeInput ? timeInput.value : '';
+        const notes = notesInput ? notesInput.value : '';
+
+        if (!date || !time) {
+            this.showNotification('Please provide a date and time for the audit.', 'error');
+            return;
+        }
+
+        this.showNotification(`Audit scheduled for ${date} at ${time}${notes ? ` (Notes: ${notes})` : ''}`, 'success');
+        this.closeScheduleAuditModal();
     }
 
     resolveViolation(violationId) {
@@ -647,37 +735,143 @@ class ComplianceManager {
     }
 
     addNewRule() {
-        document.getElementById('add-rule-modal').classList.remove('hidden');
+        this.showRuleModal('create');
+    }
+
+    editRule(ruleId) {
+        const rule = this.rules.find(r => r.id === ruleId);
+        if (!rule) {
+            this.showNotification(`Rule ${ruleId} not found`, 'error');
+            return;
+        }
+        this.showRuleModal('edit', rule);
+    }
+
+    showRuleModal(mode = 'create', rule = null) {
+        this.ruleFormMode = mode;
+        this.editingRuleId = rule ? rule.id : null;
+        const modal = document.getElementById('add-rule-modal');
+        const titleEl = document.getElementById('rule-modal-title');
+        const submitLabel = document.getElementById('rule-submit-label');
+        const submitIcon = document.getElementById('rule-submit-icon');
+
+        if (titleEl) {
+            titleEl.textContent = mode === 'edit' ? 'Edit Compliance Rule' : 'Add Compliance Rule';
+        }
+        if (submitLabel) {
+            submitLabel.textContent = mode === 'edit' ? 'Save Changes' : 'Add Rule';
+        }
+        if (submitIcon) {
+            submitIcon.className = `fas ${mode === 'edit' ? 'fa-save' : 'fa-plus'} mr-2`;
+        }
+
+        if (mode === 'edit' && rule) {
+            this.populateRuleForm(rule);
+        } else {
+            this.resetRuleForm();
+        }
+
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+
+    populateRuleForm(rule) {
+        const nameInput = document.getElementById('rule-name');
+        const typeInput = document.getElementById('rule-type');
+        const severityInput = document.getElementById('rule-severity');
+        const descriptionInput = document.getElementById('rule-description');
+
+        if (nameInput) nameInput.value = rule.name || '';
+        if (typeInput) typeInput.value = (rule.rule_type || rule.type || 'data_retention');
+        if (severityInput) severityInput.value = (rule.severity || 'MEDIUM');
+        if (descriptionInput) descriptionInput.value = rule.description || '';
+    }
+
+    resetRuleForm() {
+        const form = document.getElementById('add-rule-form');
+        if (form) form.reset();
+        const typeInput = document.getElementById('rule-type');
+        const severityInput = document.getElementById('rule-severity');
+        if (typeInput) typeInput.value = 'data_retention';
+        if (severityInput) severityInput.value = 'LOW';
     }
 
     closeAddRuleModal() {
-        document.getElementById('add-rule-modal').classList.add('hidden');
-        document.getElementById('add-rule-form').reset();
+        const modal = document.getElementById('add-rule-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        this.resetRuleForm();
+        this.ruleFormMode = 'create';
+        this.editingRuleId = null;
     }
 
-    submitNewRule() {
-        const formData = {
+    async submitRuleForm() {
+        const payload = {
             name: document.getElementById('rule-name').value,
             type: document.getElementById('rule-type').value,
             severity: document.getElementById('rule-severity').value,
             description: document.getElementById('rule-description').value
         };
-        
-        this.showNotification('Adding new compliance rule...', 'info');
-        setTimeout(() => {
-            this.showNotification('Rule added successfully', 'success');
+
+        const isEdit = this.ruleFormMode === 'edit' && this.editingRuleId;
+        const endpoint = isEdit ? `/api/compliance/rules/${this.editingRuleId}` : '/api/compliance/rules';
+        const method = isEdit ? 'PUT' : 'POST';
+
+        try {
+            this.showNotification(isEdit ? 'Saving changes...' : 'Adding new compliance rule...', 'info');
+            const response = await fetch(`${this.baseUrl}${endpoint}`, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || data.message || 'Unable to save rule');
+            }
+            this.showNotification(data.message || 'Rule saved successfully', 'success');
             this.closeAddRuleModal();
-            this.loadComplianceData();
-        }, 1000);
+            await this.loadComplianceData();
+        } catch (error) {
+            console.error('Error saving rule', error);
+            this.showNotification(`Failed to save rule: ${error.message}`, 'error');
+        }
     }
 
-    refreshRules() {
+    async toggleRule(ruleId) {
+        try {
+            this.showNotification('Updating rule status...', 'info');
+            const response = await fetch(`${this.baseUrl}/api/compliance/rules/${ruleId}/toggle`, { method: 'PUT' });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || data.message || 'Unable to toggle rule');
+            }
+            this.showNotification(data.message || 'Rule status updated', 'success');
+            await this.loadComplianceData();
+        } catch (error) {
+            console.error('Error toggling rule', error);
+            this.showNotification(`Failed to toggle rule: ${error.message}`, 'error');
+        }
+    }
+
+    async refreshRules() {
+        this.setButtonLoading('refresh-rules-btn', true);
         this.showNotification('Refreshing rules...', 'info');
-        this.loadComplianceData();
+        try {
+            await this.loadComplianceData();
+        } finally {
+            this.setButtonLoading('refresh-rules-btn', false);
+        }
     }
 
-    refreshCompliance() {
-        this.loadComplianceData();
+    async refreshCompliance() {
+        this.setButtonLoading('refresh-compliance-btn', true);
+        try {
+            await this.loadComplianceData();
+        } finally {
+            this.setButtonLoading('refresh-compliance-btn', false);
+        }
     }
 
     showLoadingOverlay(show) {
@@ -720,6 +914,59 @@ class ComplianceManager {
             }, 300);
         }, 3000);
     }
+
+    updateRuleStats(data) {
+        const total = data?.total_count ?? this.rules.length;
+        const active = data?.active_count ?? this.rules.filter(rule => (rule.status || '').toUpperCase() === 'ACTIVE').length;
+        const paused = Math.max((total || 0) - (active || 0), 0);
+        const coverage = data?.coverage_percentage ?? (total ? Math.round((active / total) * 100) : 0);
+
+        this.setElementText('rule-stat-total', total ?? '--');
+        this.setElementText('rule-stat-active', active ?? '--');
+        this.setElementText('rule-stat-paused', paused ?? '--');
+        this.setElementText('rule-stat-coverage', `${coverage ?? 0}%`);
+
+        const coverageBar = document.getElementById('rule-stat-coverage-bar');
+        if (coverageBar) {
+            const normalized = Math.max(0, Math.min(coverage || 0, 100));
+            coverageBar.style.width = `${normalized}%`;
+        }
+    }
+
+    setButtonLoading(buttonId, isLoading, loadingLabel = 'Refreshing...') {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        const icon = button.querySelector('i');
+        const label = button.querySelector('.btn-label');
+        if (isLoading) {
+            if (!button.dataset.originalIcon && icon) {
+                button.dataset.originalIcon = icon.className;
+            }
+            if (!button.dataset.originalLabel && label) {
+                button.dataset.originalLabel = label.textContent;
+            }
+            button.classList.add('opacity-70', 'cursor-not-allowed');
+            button.disabled = true;
+            if (icon) icon.className = 'fas fa-circle-notch fa-spin mr-1';
+            if (label && loadingLabel) label.textContent = loadingLabel;
+        } else {
+            button.classList.remove('opacity-70', 'cursor-not-allowed');
+            button.disabled = false;
+            if (icon && button.dataset.originalIcon) {
+                icon.className = button.dataset.originalIcon;
+            }
+            if (label && button.dataset.originalLabel) {
+                label.textContent = button.dataset.originalLabel;
+            }
+        }
+    }
+
+    setElementText(elementId, value) {
+        const el = document.getElementById(elementId);
+        if (el) {
+            el.textContent = value;
+        }
+    }
 }
 
 // Initialize when DOM is loaded
@@ -757,6 +1004,30 @@ window.exportViolations = function() {
 window.scheduleAudit = function() {
     if (window.complianceManager) {
         window.complianceManager.scheduleAudit();
+    }
+};
+
+window.closeScheduleAuditModal = function() {
+    if (window.complianceManager) {
+        window.complianceManager.closeScheduleAuditModal();
+    }
+};
+
+window.refreshRules = function() {
+    if (window.complianceManager) {
+        window.complianceManager.refreshRules();
+    }
+};
+
+window.editRule = function(id) {
+    if (window.complianceManager) {
+        window.complianceManager.editRule(id);
+    }
+};
+
+window.toggleRule = function(id) {
+    if (window.complianceManager) {
+        window.complianceManager.toggleRule(id);
     }
 };
 
