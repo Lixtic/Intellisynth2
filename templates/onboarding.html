@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntelliSynth Solution · Onboarding</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+    <link href="/static/dashboard.css" rel="stylesheet">
+    <script src="/static/navbar.js" defer></script>
+    <style>
+        body {
+            background: radial-gradient(circle at top, rgba(56, 189, 248, 0.2), transparent 40%),
+                        radial-gradient(circle at 20% 20%, rgba(129, 140, 248, 0.18), transparent 35%),
+                        #020617;
+        }
+        .glass-panel {
+            backdrop-filter: blur(20px);
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.6));
+        }
+        .pulse-dot {
+            animation: pulse 2.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.4); }
+            70% { box-shadow: 0 0 0 12px rgba(74, 222, 128, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+        }
+    </style>
+</head>
+<body class="text-white min-h-screen flex flex-col">
+    {% include 'partials/navbar.html' %}
+
+    <main class="flex-1 w-full">
+        <section class="max-w-6xl mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+                <p class="uppercase tracking-[0.4em] text-xs text-slate-400">WELCOME ABOARD</p>
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mt-6">
+                    A guided runway to <span class="text-blue-400">deploying and monitoring</span> AI agents with confidence.
+                </h1>
+                <p class="text-slate-300 text-lg mt-6 leading-relaxed">
+                    Discover how leading compliance, security, and data teams leverage IntelliSynth to narrate every AI action, automate guardrails, and resolve incidents before customers ever notice.
+                </p>
+                <div class="mt-8 flex flex-wrap gap-3">
+                    <a href="/login" class="bg-blue-500 hover:bg-blue-400 text-white px-6 py-3 rounded-full font-semibold transition">
+                        Start Monitoring
+                    </a>
+                    <a href="/docs" class="bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full font-semibold transition">
+                        See API in Action
+                    </a>
+                    <button id="scroll-to-examples" class="flex items-center gap-2 text-slate-300 hover:text-white transition px-4 py-3">
+                        <i class="fa-solid fa-circle-play text-blue-400"></i> Watch scenarios
+                    </button>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mt-10">
+                    <div class="glass-panel rounded-2xl p-4 border border-white/5">
+                        <p class="text-sm text-slate-400">Incidents neutralized</p>
+                        <p class="text-3xl font-semibold text-green-400">98.2%</p>
+                        <p class="text-xs text-slate-500">Before they reached production users</p>
+                    </div>
+                    <div class="glass-panel rounded-2xl p-4 border border-white/5">
+                        <p class="text-sm text-slate-400">Audit prep time saved</p>
+                        <p class="text-3xl font-semibold text-blue-400">37 hrs</p>
+                        <p class="text-xs text-slate-500">Per compliance sprint</p>
+                    </div>
+                </div>
+            </div>
+            <div class="relative">
+                <div class="absolute -top-6 -left-6 w-24 h-24 rounded-full bg-blue-500/20 blur-2xl"></div>
+                <div class="absolute bottom-10 -right-6 w-24 h-24 rounded-full bg-purple-500/20 blur-2xl"></div>
+                <div class="glass-panel border border-white/10 rounded-3xl p-8 shadow-2xl">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-slate-400 text-sm">LIVE STORY</p>
+                            <h3 class="text-2xl font-semibold mt-1">Banking Ops Command</h3>
+                        </div>
+                        <span class="px-3 py-1 rounded-full bg-green-500/20 text-green-300 text-xs">Active</span>
+                    </div>
+                    <div class="mt-8 space-y-6">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center text-xl">01</div>
+                            <div>
+                                <p class="text-sm text-slate-400">Flagged Transaction</p>
+                                <p class="text-lg">$2.4M wire paused by anomaly agent</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center text-xl">02</div>
+                            <div>
+                                <p class="text-sm text-slate-400">Compliance Reasoning</p>
+                                <p class="text-lg">Cites EU AI Act transparency clause</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center text-xl">03</div>
+                            <div>
+                                <p class="text-sm text-slate-400">Human Decision</p>
+                                <p class="text-lg">Risk officer resolves in 3 minutes</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-10 p-4 rounded-2xl bg-slate-900/70 border border-white/5">
+                        <p class="text-sm text-slate-400">Guardrails deployed</p>
+                        <p class="text-2xl font-semibold">ChatGPT, Claude, Vertex agents</p>
+                        <p class="text-xs text-slate-500 mt-1">Auto-instrumented with Flight Recorder SDK</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="examples" class="bg-white/5 border-y border-white/10">
+            <div class="max-w-6xl mx-auto px-6 py-16">
+                <div class="flex items-center justify-between flex-wrap gap-6">
+                    <div>
+                        <p class="uppercase text-xs tracking-[0.4em] text-slate-400">REAL-WORLD USAGE</p>
+                        <h2 class="text-3xl font-semibold mt-3">Teams shipping responsibly with IntelliSynth</h2>
+                    </div>
+                    <a href="/docs" class="px-5 py-3 rounded-full bg-white/10 hover:bg-white/20 transition text-sm">See integration quick start</a>
+                </div>
+                <div class="grid md:grid-cols-3 gap-6 mt-10">
+                    <article class="glass-panel rounded-3xl p-6 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-green-500/20 flex items-center justify-center text-green-300"><i class="fa-solid fa-building-columns"></i></div>
+                            <p class="text-sm uppercase tracking-wide text-slate-400">Financial Crime</p>
+                        </div>
+                        <h3 class="text-xl font-semibold mt-4">Fortune 100 bank</h3>
+                        <p class="text-slate-300 text-sm mt-2">Narrates every LLM decision, ships evidence packs automatically to audit vaults.</p>
+                        <ul class="text-sm text-slate-400 mt-4 space-y-2">
+                            <li>• 4.2M agent actions logged monthly</li>
+                            <li>• 27% faster suspicious activity reviews</li>
+                            <li>• Connected Tableau + Splunk + ServiceNow</li>
+                        </ul>
+                    </article>
+                    <article class="glass-panel rounded-3xl p-6 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-300"><i class="fa-solid fa-stethoscope"></i></div>
+                            <p class="text-sm uppercase tracking-wide text-slate-400">Clinical Copilots</p>
+                        </div>
+                        <h3 class="text-xl font-semibold mt-4">Health network</h3>
+                        <p class="text-slate-300 text-sm mt-2">Records AI reasoning behind care recommendations while enforcing HIPAA logging.</p>
+                        <ul class="text-sm text-slate-400 mt-4 space-y-2">
+                            <li>• 12 EHR connectors plugged in</li>
+                            <li>• PHI redaction scored in real time</li>
+                            <li>• Compliance scorecard shared with regulators</li>
+                        </ul>
+                    </article>
+                    <article class="glass-panel rounded-3xl p-6 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-300"><i class="fa-solid fa-shield-halved"></i></div>
+                            <p class="text-sm uppercase tracking-wide text-slate-400">Security Automation</p>
+                        </div>
+                        <h3 class="text-xl font-semibold mt-4">Retail SOC</h3>
+                        <p class="text-slate-300 text-sm mt-2">AI triage bots escalate with full evidence so analysts can approve with context.</p>
+                        <ul class="text-sm text-slate-400 mt-4 space-y-2">
+                            <li>• 6x faster escalation approvals</li>
+                            <li>• Zero trust logging for every API call</li>
+                            <li>• 24/7 anomaly sweeps via Flight Recorder</li>
+                        </ul>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-6xl mx-auto px-6 py-16">
+            <div class="grid lg:grid-cols-[1.4fr_1fr] gap-10 items-center">
+                <div>
+                    <p class="uppercase text-xs tracking-[0.4em] text-slate-400">GUIDED CHECKLIST</p>
+                    <h2 class="text-3xl font-semibold mt-3">Launch in four focused missions</h2>
+                    <div class="mt-8 space-y-6">
+                        <div class="glass-panel rounded-2xl p-5 border border-white/5 flex gap-4">
+                            <div class="w-10 h-10 rounded-full bg-blue-500/30 flex items-center justify-center text-lg font-semibold">1</div>
+                            <div>
+                                <h3 class="font-semibold">Instrument your agents</h3>
+                                <p class="text-sm text-slate-400">Drop-in SDK or REST collector captures prompts, responses, and tool calls with near-zero latency.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 border border-white/5 flex gap-4">
+                            <div class="w-10 h-10 rounded-full bg-purple-500/30 flex items-center justify-center text-lg font-semibold">2</div>
+                            <div>
+                                <h3 class="font-semibold">Define guardrails</h3>
+                                <p class="text-sm text-slate-400">Map regulations and internal policies into reusable compliance rule templates with approvals.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 border border-white/5 flex gap-4">
+                            <div class="w-10 h-10 rounded-full bg-rose-500/30 flex items-center justify-center text-lg font-semibold">3</div>
+                            <div>
+                                <h3 class="font-semibold">Stream operational views</h3>
+                                <p class="text-sm text-slate-400">Pair dashboards with Slack, ServiceNow, or email digests so guardians stay ahead of drift.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 border border-white/5 flex gap-4">
+                            <div class="w-10 h-10 rounded-full bg-emerald-500/30 flex items-center justify-center text-lg font-semibold">4</div>
+                            <div>
+                                <h3 class="font-semibold">Automate response</h3>
+                                <p class="text-sm text-slate-400">Trigger workflows, quarantine agents, or request human sign-off using the approval engine.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass-panel rounded-3xl p-6 border border-white/5">
+                    <p class="uppercase text-xs tracking-[0.4em] text-slate-400">MISSION FEED</p>
+                    <div id="scenario-card" class="mt-6">
+                        <p class="text-sm text-slate-400">Scenario</p>
+                        <h3 class="text-2xl font-semibold" id="scenario-title">AI credit assistant</h3>
+                        <p class="text-slate-300 mt-4" id="scenario-body">Flags hallucinated credit advice, routes summary to human banker.</p>
+                    </div>
+                    <div class="mt-6 flex gap-3">
+                        <button data-scenario="prev" class="flex-1 bg-white/10 hover:bg-white/20 rounded-full py-3">Previous</button>
+                        <button data-scenario="next" class="flex-1 bg-blue-500/80 hover:bg-blue-500 rounded-full py-3">Next</button>
+                    </div>
+                    <ul id="scenario-stats" class="mt-6 space-y-3 text-sm text-slate-400">
+                        <li>• 74% drop in risky responses</li>
+                        <li>• 2 minute human confirmation</li>
+                        <li>• Evidence pack stored in Firestore + SQL</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-6xl mx-auto px-6 pb-16">
+            <div class="glass-panel rounded-3xl border border-white/10 px-8 py-10 flex flex-col lg:flex-row items-center gap-8">
+                <div class="flex-1">
+                    <p class="uppercase text-xs tracking-[0.4em] text-slate-400">READY FOR LIFT-OFF</p>
+                    <h2 class="text-3xl font-semibold mt-3">Start narrating your AI decisions today</h2>
+                    <p class="text-slate-300 mt-4">Spin up a sandbox in minutes, replay production traffic safely, and bring your compliance lead into the same cockpit.</p>
+                </div>
+                <div class="flex gap-3">
+                    <a href="/dashboard" class="bg-blue-500 hover:bg-blue-400 rounded-full px-6 py-3 font-semibold">Open Dashboard</a>
+                    <a href="/reports" class="bg-white/10 hover:bg-white/20 rounded-full px-6 py-3 font-semibold">Preview Reports</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="text-center text-xs text-slate-500 py-6">
+        &copy; {{ datetime.utcnow().year if datetime else 2025 }} IntelliSynth Solution · Built for audit-proof AI teams
+    </footer>
+
+    <script>
+        const scenarios = [
+            {
+                title: 'AI credit assistant',
+                body: 'Flags hallucinated credit advice, routes summary to human banker.',
+                stats: ['• 74% drop in risky responses', '• 2 minute human confirmation', '• Evidence pack stored in Firestore + SQL']
+            },
+            {
+                title: 'GenAI document agent',
+                body: 'Extracts KYC documents, highlights missing attestations, requests agent review.',
+                stats: ['• 35% faster onboarding', '• Multi-tenant segregation alarms', '• Policy violations sent to compliance']
+            },
+            {
+                title: 'Retail security co-pilot',
+                body: 'Detects synthetic card testing bursts and opens ServiceNow tickets with context.',
+                stats: ['• 6x faster escalation approvals', '• LLM responses signed and hashed', '• Slack + PagerDuty notifications included']
+            }
+        ];
+
+        let scenarioIndex = 0;
+        const titleEl = document.getElementById('scenario-title');
+        const bodyEl = document.getElementById('scenario-body');
+        const statsEl = document.getElementById('scenario-stats');
+
+        function renderScenario(index) {
+            const data = scenarios[index];
+            titleEl.textContent = data.title;
+            bodyEl.textContent = data.body;
+            statsEl.innerHTML = data.stats.map(line => `<li>${line}</li>`).join('');
+        }
+
+        document.querySelectorAll('[data-scenario]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                scenarioIndex = (btn.dataset.scenario === 'next')
+                    ? (scenarioIndex + 1) % scenarios.length
+                    : (scenarioIndex - 1 + scenarios.length) % scenarios.length;
+                renderScenario(scenarioIndex);
+            });
+        });
+
+        const scrollBtn = document.getElementById('scroll-to-examples');
+        if (scrollBtn) {
+            scrollBtn.addEventListener('click', () => {
+                document.getElementById('examples').scrollIntoView({ behavior: 'smooth' });
+            });
+        }
+
+        renderScenario(0);
+    </script>
+</body>
+</html>

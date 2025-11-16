@@ -236,7 +236,8 @@ app = FastAPI(
     
     ## 🔗 Quick Access
     
-    * **Dashboard**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+    * **Onboarding**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+    * **Dashboard**: [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
     * **Login Page**: [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login)
     * **API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
     
@@ -261,12 +262,28 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # 🏠 Core Application Endpoints
-@app.get("/", response_class=HTMLResponse, tags=["🏠 Core Application"],
+@app.get("/dashboard", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Main Dashboard",
          description="Interactive dashboard with real-time monitoring, charts, and system status widgets")
 async def dashboard(request: Request):
     """Main dashboard with comprehensive monitoring interface"""
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/onboarding", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="Interactive Onboarding",
+         description="Guided onboarding experience highlighting real-world usage scenarios and setup steps")
+async def onboarding(request: Request):
+    """Onboarding page showcasing real-world scenarios and quick-start guidance"""
+    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
+
+
+@app.get("/", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="Welcome & Onboarding",
+         description="Default landing that introduces IntelliSynth with guided setup steps and customer stories")
+async def landing(request: Request):
+    """Default landing page that reuses the onboarding experience"""
+    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
 
 @app.get("/compliance", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Compliance Management",

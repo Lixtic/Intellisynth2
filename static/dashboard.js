@@ -587,38 +587,6 @@ class AIFlightRecorderDashboard {
             }
         });
 
-        this.setupMobileMenu();
-    }
-
-    setupMobileMenu() {
-        const toggleButton = document.getElementById('mobile-menu-toggle');
-        const mobileMenu = document.getElementById('mobile-menu');
-        if (!toggleButton || !mobileMenu) {
-            return;
-        }
-
-        const closeMenu = () => {
-            mobileMenu.classList.add('hidden');
-            toggleButton.setAttribute('aria-expanded', 'false');
-        };
-
-        toggleButton.addEventListener('click', () => {
-            const isHidden = mobileMenu.classList.contains('hidden');
-            mobileMenu.classList.toggle('hidden');
-            toggleButton.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
-        });
-
-        mobileMenu.querySelectorAll('a, button').forEach(element => {
-            element.addEventListener('click', () => {
-                closeMenu();
-            });
-        });
-
-        window.addEventListener('resize', () => {
-            if (window.innerWidth >= 1024) {
-                closeMenu();
-            }
-        });
     }
 
     showLoadingOverlay(show) {
