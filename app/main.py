@@ -216,6 +216,284 @@ tags_metadata = [
     },
 ]
 
+API_ENDPOINT_CATALOG = [
+    {
+        "name": "Core Platform",
+        "tag": "🏠 Core Application",
+        "icon": "fa-gauge-high",
+        "accent_border": "border-blue-500/40",
+        "accent_chip": "text-blue-200 bg-blue-500/10",
+        "accent_icon": "text-blue-300",
+        "description": "Operational readiness, health, and metadata endpoints that power monitoring tiles.",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/health",
+                "summary": "Service heartbeat",
+                "description": "Lightweight probe returning uptime, status, and version details.",
+                "auth": "None",
+                "response": "status, uptime, version, timestamp",
+            },
+            {
+                "method": "GET",
+                "path": "/api/info",
+                "summary": "Platform metadata",
+                "description": "High-level API overview including features and endpoint counts.",
+                "auth": "None",
+                "response": "name, description, features, endpoint stats",
+            },
+            {
+                "method": "GET",
+                "path": "/api/services/status",
+                "summary": "Service roster",
+                "description": "Returns health for monitoring, compliance, log, and security services.",
+                "auth": "None",
+                "response": "status map with uptime for each subsystem",
+            },
+            {
+                "method": "GET",
+                "path": "/test",
+                "summary": "Connectivity check",
+                "description": "Simple JSON payload to validate networking or API keys.",
+                "auth": "None",
+                "response": "message, timestamp",
+            },
+        ],
+    },
+    {
+        "name": "Authentication & Sessions",
+        "tag": "🔐 Authentication",
+        "icon": "fa-user-shield",
+        "accent_border": "border-emerald-500/40",
+        "accent_chip": "text-emerald-200 bg-emerald-500/10",
+        "accent_icon": "text-emerald-300",
+        "description": "Demo-friendly authentication endpoints for form and JSON flows.",
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/api/auth/login",
+                "summary": "JSON login",
+                "description": "Accepts username/password (demo/demo123) and returns a demo token.",
+                "auth": "Demo credentials",
+                "response": "success flag, token, user profile",
+            },
+            {
+                "method": "POST",
+                "path": "/login",
+                "summary": "Form login",
+                "description": "HTML form endpoint for browser-based authentication flows.",
+                "auth": "Demo credentials",
+                "response": "HTML redirect or validation errors",
+            },
+            {
+                "method": "GET",
+                "path": "/api/auth/status",
+                "summary": "Session status",
+                "description": "Returns whether the demo session is active and which scopes are enabled.",
+                "auth": "Bearer (optional)",
+                "response": "status, user, scopes",
+            },
+            {
+                "method": "GET",
+                "path": "/api/auth/test",
+                "summary": "Credentials test",
+                "description": "Verifies demo credentials and surfaces friendly troubleshooting tips.",
+                "auth": "None",
+                "response": "message, demo credentials, expires_at",
+            },
+        ],
+    },
+    {
+        "name": "Activity Log & Agents",
+        "tag": "📋 Activity Log",
+        "icon": "fa-wave-square",
+        "accent_border": "border-sky-500/40",
+        "accent_chip": "text-sky-200 bg-sky-500/10",
+        "accent_icon": "text-sky-300",
+        "description": "Immutable trail of every AI action with helper endpoints for verification.",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/api/activity-logs",
+                "summary": "Fetch logs",
+                "description": "Paginated, filterable activity history for every agent action.",
+                "auth": "Bearer (optional)",
+                "response": "list of activity objects with hashes",
+            },
+            {
+                "method": "POST",
+                "path": "/api/activity-logs",
+                "summary": "Create log entry",
+                "description": "Allows services to push custom activities into the ledger.",
+                "auth": "Service token",
+                "response": "saved activity with generated hash",
+            },
+            {
+                "method": "GET",
+                "path": "/api/activity-logs/latest",
+                "summary": "Latest delta",
+                "description": "Returns activities that occurred after a provided ISO timestamp.",
+                "auth": "Bearer (optional)",
+                "response": "new activities array",
+            },
+            {
+                "method": "GET",
+                "path": "/api/activity-logs/stats",
+                "summary": "Activity stats",
+                "description": "Aggregated totals for decisions, data points, errors, and agent counts.",
+                "auth": "None",
+                "response": "totals, hourly_activity, agent_distribution",
+            },
+            {
+                "method": "GET",
+                "path": "/api/activity-logs/verify-integrity",
+                "summary": "Hash verification",
+                "description": "Runs cryptographic validation across the immutable log chain.",
+                "auth": "None",
+                "response": "verification result, mismatches, computed hash",
+            },
+            {
+                "method": "GET",
+                "path": "/api/agents",
+                "summary": "Agent roster",
+                "description": "Lists agents available for filtering within the activity log UI.",
+                "auth": "None",
+                "response": "array of agents with status",
+            },
+        ],
+    },
+    {
+        "name": "Monitoring & Metrics",
+        "tag": "📊 Agent Monitoring",
+        "icon": "fa-chart-line",
+        "accent_border": "border-purple-500/40",
+        "accent_chip": "text-purple-200 bg-purple-500/10",
+        "accent_icon": "text-purple-300",
+        "description": "System-wide telemetry powering dashboards, charts, and gauges.",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/api/monitoring/metrics",
+                "summary": "Key metrics",
+                "description": "Provides CPU, memory, throughput, and compliance readings.",
+                "auth": "None",
+                "response": "metrics block with spark data",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/activity",
+                "summary": "Recent activity",
+                "description": "Curated feed of notable agent events for status tiles.",
+                "auth": "None",
+                "response": "activities, spotlight, trend",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/agents",
+                "summary": "Agent status",
+                "description": "Returns connection health, last heartbeat, and version metadata per agent.",
+                "auth": "None",
+                "response": "agents array with status and latency",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/system",
+                "summary": "System overview",
+                "description": "Bundles health, uptime, resource, and compliance posture summaries.",
+                "auth": "None",
+                "response": "overview object with nested sections",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/dashboard",
+                "summary": "Dashboard snapshot",
+                "description": "Single call used by the dashboard to hydrate hero metrics.",
+                "auth": "None",
+                "response": "counts, alerts, anomaly stats",
+            },
+        ],
+    },
+    {
+        "name": "Compliance & Audit",
+        "tag": "🔍 Audit & Compliance",
+        "icon": "fa-scale-balanced",
+        "accent_border": "border-amber-500/40",
+        "accent_chip": "text-amber-200 bg-amber-500/10",
+        "accent_icon": "text-amber-300",
+        "description": "Rule catalogs, audit digests, and compliance violation snapshots.",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/api/rules",
+                "summary": "Compliance rules",
+                "description": "Lists configured guardrails with severity, status, and metadata.",
+                "auth": "None",
+                "response": "rules array",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/audit/summary",
+                "summary": "Audit digest",
+                "description": "Summarizes last verification, review backlog, and attestations.",
+                "auth": "None",
+                "response": "summary, review_backlog, attestations",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/compliance/violations",
+                "summary": "Open violations",
+                "description": "Paginated list of open compliance issues grouped by framework.",
+                "auth": "None",
+                "response": "violations array with counts",
+            },
+        ],
+    },
+    {
+        "name": "Security & Approvals",
+        "tag": "🔒 Security & Anomalies",
+        "icon": "fa-shield-halved",
+        "accent_border": "border-rose-500/40",
+        "accent_chip": "text-rose-200 bg-rose-500/10",
+        "accent_icon": "text-rose-300",
+        "description": "Threat intelligence plus manual approval workflows for sensitive actions.",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/api/monitoring/anomalies",
+                "summary": "Detected anomalies",
+                "description": "AI-enhanced anomaly list with severity, impacted assets, and rationale.",
+                "auth": "None",
+                "response": "anomalies array, totals, severity counts",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/approvals/pending",
+                "summary": "Pending approvals",
+                "description": "Lists outstanding human-in-the-loop approvals with SLAs.",
+                "auth": "None",
+                "response": "pending approvals, total_count",
+            },
+            {
+                "method": "GET",
+                "path": "/api/monitoring/activity",
+                "summary": "Security spotlight",
+                "description": "Filterable stream used by SOC widgets to surface notable events.",
+                "auth": "None",
+                "response": "activities with security context",
+            },
+        ],
+    },
+]
+
+METHOD_BADGES = {
+    "GET": "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30",
+    "POST": "bg-blue-500/15 text-blue-200 border border-blue-400/30",
+    "PUT": "bg-yellow-500/15 text-yellow-200 border border-yellow-400/30",
+    "PATCH": "bg-purple-500/15 text-purple-200 border border-purple-400/30",
+    "DELETE": "bg-rose-500/15 text-rose-200 border border-rose-400/30",
+    "default": "bg-slate-700/40 text-slate-200 border border-slate-600/40",
+}
+
 # Initialize FastAPI with enhanced documentation
 app = FastAPI(
     title="🚀 IntelliSynth Solution API",
@@ -305,6 +583,30 @@ async def activity_log(request: Request):
 async def reports(request: Request):
     """Reports and analytics interface with charts, metrics, and export capabilities"""
     return templates.TemplateResponse("reports.html", {"request": request})
+
+
+@app.get("/api-endpoints", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="API Endpoint Catalog",
+         description="Human-friendly explorer that groups IntelliSynth API endpoints by capability with quick filters")
+async def api_endpoint_catalog(request: Request):
+    """Serve the interactive API endpoint reference page"""
+    total_endpoints = sum(len(category["endpoints"]) for category in API_ENDPOINT_CATALOG)
+    method_counts: Dict[str, int] = {}
+    for category in API_ENDPOINT_CATALOG:
+        for endpoint in category["endpoints"]:
+            method = endpoint["method"].upper()
+            method_counts[method] = method_counts.get(method, 0) + 1
+
+    context = {
+        "request": request,
+        "categories": API_ENDPOINT_CATALOG,
+        "method_styles": METHOD_BADGES,
+        "method_counts": method_counts,
+        "total_endpoints": total_endpoints,
+        "category_count": len(API_ENDPOINT_CATALOG),
+        "last_refreshed": datetime.utcnow().strftime("%b %d, %Y %H:%M UTC"),
+    }
+    return templates.TemplateResponse("api_endpoints.html", context)
 
 @app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Login Page",

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Endpoint Catalog - IntelliSynth Solution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/dashboard.css" rel="stylesheet">
+    <script src="/static/navbar.js" defer></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dark-bg': '#0f172a',
+                        'dark-card': '#1e293b',
+                        'accent-blue': '#3b82f6',
+                        'accent-green': '#10b981',
+                        'accent-yellow': '#fbbf24',
+                        'accent-rose': '#f43f5e'
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.35s ease-out',
+                        'pulse-slower': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: 0, transform: 'translateY(8px)' },
+                            '100%': { opacity: 1, transform: 'translateY(0)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gradient-to-br from-dark-bg via-slate-900 to-dark-bg min-h-screen text-white font-sans">
+    {% include 'partials/navbar.html' %}
+
+    <section class="bg-slate-900/60 border-b border-slate-800/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col gap-6">
+            <div class="flex flex-wrap items-start gap-6">
+                <div class="flex-1 min-w-[250px]">
+                    <p class="text-sm uppercase tracking-wide text-slate-400">API Explorer</p>
+                    <h1 class="text-3xl md:text-4xl font-bold mt-2 leading-tight">
+                        Visual catalog of every IntelliSynth endpoint
+                    </h1>
+                    <p class="text-slate-400 mt-3 max-w-2xl">
+                        Browse grouped endpoints, copy-ready routes, and live stats in one tidy interface. Ideal for integrators, SREs, and demo flows.
+                    </p>
+                    <div class="flex flex-wrap gap-3 mt-6">
+                        <a href="/docs" target="_blank"
+                           class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold shadow-lg shadow-blue-500/20 hover:bg-blue-500/90 transition-all">
+                            <i class="fas fa-book"></i>Open Swagger Docs
+                        </a>
+                        <a href="/AI_Flight_Recorder_API.postman_collection.json" download
+                           class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-sm font-semibold text-slate-200 hover:border-slate-500 transition-all">
+                            <i class="fas fa-cloud-download-alt"></i>Download Postman collection
+                        </a>
+                    </div>
+                </div>
+                <div class="bg-gradient-to-br from-blue-600/30 via-blue-500/10 to-transparent border border-blue-500/30 rounded-2xl px-6 py-4 w-full md:w-auto">
+                    <p class="text-xs text-blue-200 uppercase tracking-wide">Last refreshed</p>
+                    <p class="text-lg font-semibold text-white">{{ last_refreshed }}</p>
+                    <p class="text-sm text-slate-300 mt-1">Counts auto-update with every backend deploy</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <!-- Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="bg-dark-card/70 border border-slate-700/60 rounded-xl p-5 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-300 flex items-center justify-center text-2xl">
+                    <i class="fas fa-sitemap"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Total endpoints</p>
+                    <p class="text-3xl font-bold mt-1 text-white">{{ total_endpoints }}</p>
+                    <p class="text-sm text-slate-400 mt-1">Across {{ category_count }} capability groups</p>
+                </div>
+            </div>
+            <div class="bg-dark-card/70 border border-green-500/20 rounded-xl p-5 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-2xl">
+                    <i class="fas fa-download"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">GET</p>
+                    <p class="text-3xl font-bold mt-1 text-green-300">{{ method_counts.get('GET', 0) }}</p>
+                    <p class="text-sm text-slate-400 mt-1">Safe read-only operations</p>
+                </div>
+            </div>
+            <div class="bg-dark-card/70 border border-blue-500/30 rounded-xl p-5 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-300 flex items-center justify-center text-2xl">
+                    <i class="fas fa-upload"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">POST</p>
+                    <p class="text-3xl font-bold mt-1 text-blue-300">{{ method_counts.get('POST', 0) }}</p>
+                    <p class="text-sm text-slate-400 mt-1">Create or trigger workflows</p>
+                </div>
+            </div>
+            <div class="bg-dark-card/70 border border-amber-500/30 rounded-xl p-5 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-2xl">
+                    <i class="fas fa-exchange-alt"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Other verbs</p>
+                    <p class="text-3xl font-bold mt-1 text-amber-300">
+                        {{ method_counts.get('PUT', 0) + method_counts.get('PATCH', 0) + method_counts.get('DELETE', 0) }}
+                    </p>
+                    <p class="text-sm text-slate-400 mt-1">Reserved for future mutations</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-dark-card/70 border border-slate-700/60 rounded-2xl p-5 flex flex-col gap-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <p class="text-sm text-slate-400">Jump to capability</p>
+                <button type="button" id="reset-filters" class="text-xs font-semibold text-accent-blue hover:text-white transition-colors">
+                    Reset filters
+                </button>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                {% for category in categories %}
+                    <button type="button" data-category-jump="#category-{{ loop.index }}"
+                            class="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800/80 border border-slate-700 hover:border-accent-blue/60 transition-all">
+                        {{ category.name }}
+                    </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Search + filters -->
+        <div class="bg-dark-card/70 border border-slate-700/60 rounded-2xl p-6 space-y-4">
+            <div class="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+                <div class="flex-1 w-full">
+                    <label for="endpoint-search" class="text-sm text-slate-400">Search endpoints</label>
+                    <div class="relative mt-1">
+                        <span class="absolute inset-y-0 left-3 flex items-center text-slate-500"><i class="fas fa-search"></i></span>
+                        <input id="endpoint-search" type="text" placeholder="Filter by path, summary, or tag"
+                               class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-800/70 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-accent-blue" />
+                    </div>
+                </div>
+                <div class="w-full lg:w-auto">
+                    <p class="text-sm text-slate-400 mb-2">Filter by method</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" data-method-filter="ALL"
+                                class="px-3 py-1 rounded-lg text-xs font-semibold border bg-accent-blue text-white border-blue-500/60">
+                            All ({{ total_endpoints }})
+                        </button>
+                        {% for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] %}
+                            <button type="button" data-method-filter="{{ method }}"
+                                    class="px-3 py-1 rounded-lg text-xs font-semibold border bg-slate-700/60 text-slate-300 border-slate-600/60">
+                                {{ method }} ({{ method_counts.get(method, 0) }})
+                            </button>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="text-xs text-slate-500 flex items-center gap-2">
+                <i class="fas fa-lightbulb text-amber-300"></i>
+                Tip: Use the search bar to find "compliance", "anomaly", or any path segment instantly.
+            </div>
+        </div>
+
+        <!-- Categories -->
+        <div class="space-y-6" id="endpoint-grid">
+            {% for category in categories %}
+                <section id="category-{{ loop.index }}" class="bg-dark-card/70 border {{ category.accent_border }} rounded-2xl p-6 space-y-4 animate-fade-in scroll-mt-24" data-category-card>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-slate-800/70 flex items-center justify-center {{ category.accent_icon }} text-xl">
+                            <i class="fas {{ category.icon }}"></i>
+                        </div>
+                        <div class="flex-1 min-w-[200px]">
+                            <p class="text-xs uppercase tracking-wide text-slate-400">{{ category.tag }}</p>
+                            <h2 class="text-2xl font-semibold">{{ category.name }}</h2>
+                            <p class="text-slate-400 text-sm mt-1">{{ category.description }}</p>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold {{ category.accent_chip }} border border-white/10">
+                            {{ category.endpoints | length }} endpoints
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {% for endpoint in category.endpoints %}
+                            {% set badge = method_styles.get(endpoint.method, method_styles.get('default')) %}
+                            <div class="bg-slate-900/50 border border-slate-800/80 rounded-xl p-4 space-y-3 focus-within:ring-2 focus-within:ring-accent-blue/60" tabindex="0" data-endpoint-entry data-method="{{ endpoint.method }}" data-search="{{ (endpoint.path ~ ' ' ~ endpoint.summary ~ ' ' ~ endpoint.description ~ ' ' ~ category.name ~ ' ' ~ category.tag)|lower }}">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="px-2 py-0.5 rounded-md text-xs font-semibold {{ badge }}">{{ endpoint.method }}</span>
+                                    <span class="text-xs text-slate-400">Auth: {{ endpoint.auth }}</span>
+                                </div>
+                                <div>
+                                    <p class="font-mono text-base text-white">{{ endpoint.path }}</p>
+                                    <p class="text-sm text-slate-300 mt-1">{{ endpoint.summary }}</p>
+                                </div>
+                                <p class="text-sm text-slate-400">{{ endpoint.description }}</p>
+                                <div class="flex items-center justify-between text-xs text-slate-500">
+                                    <span>Response: {{ endpoint.response }}</span>
+                                    <button type="button" data-copy="{{ endpoint.path }}" class="inline-flex items-center gap-1 text-accent-blue hover:text-white transition-colors">
+                                        <i class="fas fa-copy text-[10px]"></i>Copy
+                                    </button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+
+                    <div data-empty-message class="hidden bg-slate-900/40 border border-dashed border-slate-700 rounded-xl p-4 text-sm text-slate-400">
+                        No endpoints in this group match your current filters.
+                    </div>
+                </section>
+            {% endfor %}
+        </div>
+
+        <div id="empty-state" class="hidden border border-slate-700/70 rounded-2xl p-8 text-center bg-slate-900/50">
+            <i class="fas fa-magnifying-glass text-4xl text-slate-600"></i>
+            <p class="text-lg font-semibold mt-4">No endpoints found</p>
+            <p class="text-slate-400 text-sm mt-2">Try clearing the filters or searching for a different keyword.</p>
+        </div>
+    
+        <div class="bg-gradient-to-br from-slate-900/80 via-slate-900/40 to-transparent border border-slate-700/60 rounded-2xl p-6 flex flex-wrap items-center gap-4">
+            <div class="flex-1 min-w-[220px]">
+                <p class="text-sm uppercase tracking-wide text-slate-400">Need live try-outs?</p>
+                <h3 class="text-2xl font-semibold mt-1">Launch a sandbox session in seconds</h3>
+                <p class="text-slate-400 text-sm mt-2">Use the Postman collection or curl snippets to hit any endpoint without leaving this page.</p>
+            </div>
+            <div class="flex gap-3">
+                <a href="/AI_Flight_Recorder_API.postman_collection.json" download class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500/90 text-white text-sm font-semibold">
+                    <i class="fas fa-file-export"></i>Postman JSON
+                </a>
+                <a href="/docs" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-600 text-sm font-semibold text-slate-200">
+                    <i class="fas fa-terminal"></i>Swagger UI
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('endpoint-search');
+            const methodButtons = document.querySelectorAll('[data-method-filter]');
+            const entries = document.querySelectorAll('[data-endpoint-entry]');
+            const categoryCards = document.querySelectorAll('[data-category-card]');
+            const globalEmpty = document.getElementById('empty-state');
+            const quickNavButtons = document.querySelectorAll('[data-category-jump]');
+            const resetFiltersBtn = document.getElementById('reset-filters');
+            let activeMethod = 'ALL';
+
+            const setButtonStyles = () => {
+                methodButtons.forEach(button => {
+                    const isActive = button.dataset.methodFilter === activeMethod;
+                    button.classList.toggle('bg-accent-blue', isActive);
+                    button.classList.toggle('text-white', isActive);
+                    button.classList.toggle('border-blue-500/60', isActive);
+                    button.classList.toggle('bg-slate-700/60', !isActive);
+                    button.classList.toggle('text-slate-300', !isActive);
+                    button.classList.toggle('border-slate-600/60', !isActive);
+                });
+            };
+
+            const applyFilters = () => {
+                const query = searchInput.value.trim().toLowerCase();
+                let visibleCount = 0;
+
+                entries.forEach(entry => {
+                    const matchesText = entry.dataset.search.includes(query);
+                    const matchesMethod = activeMethod === 'ALL' || entry.dataset.method === activeMethod;
+                    const isVisible = matchesText && matchesMethod;
+                    entry.dataset.visible = isVisible ? 'true' : 'false';
+                    entry.classList.toggle('hidden', !isVisible);
+                    if (isVisible) {
+                        visibleCount += 1;
+                    }
+                });
+
+                categoryCards.forEach(card => {
+                    const hasVisible = card.querySelector('[data-endpoint-entry][data-visible="true"]');
+                    const emptyMessage = card.querySelector('[data-empty-message]');
+                    card.classList.toggle('opacity-50', !hasVisible);
+                    if (emptyMessage) {
+                        emptyMessage.classList.toggle('hidden', Boolean(hasVisible));
+                    }
+                });
+
+                if (globalEmpty) {
+                    globalEmpty.classList.toggle('hidden', visibleCount > 0);
+                }
+            };
+
+            methodButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    activeMethod = button.dataset.methodFilter;
+                    setButtonStyles();
+                    applyFilters();
+                });
+            });
+
+            searchInput.addEventListener('input', applyFilters);
+
+            quickNavButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const target = document.querySelector(button.dataset.categoryJump);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+            });
+
+            if (resetFiltersBtn) {
+                resetFiltersBtn.addEventListener('click', () => {
+                    activeMethod = 'ALL';
+                    searchInput.value = '';
+                    setButtonStyles();
+                    applyFilters();
+                });
+            }
+
+            // Initialize
+            setButtonStyles();
+            applyFilters();
+
+            document.querySelectorAll('[data-copy]').forEach(button => {
+                button.addEventListener('click', async () => {
+                    const value = button.dataset.copy;
+                    try {
+                        await navigator.clipboard.writeText(value);
+                        button.textContent = 'Copied!';
+                        setTimeout(() => (button.textContent = 'Copy'), 1500);
+                    } catch (error) {
+                        button.textContent = 'Use Ctrl+C';
+                        setTimeout(() => (button.textContent = 'Copy'), 1500);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
