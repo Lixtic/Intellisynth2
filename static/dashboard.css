@@ -1,14 +1,22 @@
 /* Responsive navbar enhancements */
 .mobile-menu-collapsed {
-	max-height: 0;
-	opacity: 0;
-	pointer-events: none;
-	transform: translateY(-8px);
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+    visibility: hidden;
 }
 
 .mobile-menu-expanded {
-	max-height: 600px;
-	opacity: 1;
-	pointer-events: auto;
-	transform: translateY(0);
+    max-height: 600px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+    visibility: visible;
+}
+
+/* Ensure smooth transitions */
+#mobile-menu {
+    transition-property: max-height, opacity, transform, visibility;
+    transition-timing-function: ease-out;
 }

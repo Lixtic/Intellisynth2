@@ -18,24 +18,56 @@ class GlobalNavbar {
             return;
         }
 
-        const closeMenu = () => this.applyMenuState(false);
+        // Ensure initial state is properly set
+        this.mobileMenu.classList.add('mobile-menu-collapsed');
+        this.mobileMenu.classList.remove('mobile-menu-expanded');
 
-        this.toggleButton.addEventListener('click', () => {
+        this.toggleButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const isOpen = this.mobileMenu.classList.contains('mobile-menu-expanded');
             this.applyMenuState(!isOpen);
         });
 
-        this.mobileMenu.querySelectorAll('a, button').forEach((element) => {
-            element.addEventListener('click', () => closeMenu());
+        this.mobileMenu.querySelectorAll('a').forEach((link) => {
+            link.addEventListener('click', () => {
+                // Small delay to allow navigation to complete
+                setTimeout(() => this.applyMenuState(false), 100);
+            });
         });
 
-        window.addEventListener('resize', () => {
-            if (window.innerWidth >= 1024) {
-                closeMenu();
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const isOpen = this.mobileMenu.classList.contains('mobile-menu-expanded');
+            if (!isOpen) return;
+
+            // Check if click is outside both menu and toggle button
+            const isClickInsideMenu = this.mobileMenu.contains(e.target);
+            const isClickOnToggle = this.toggleButton.contains(e.target);
+
+            if (!isClickInsideMenu && !isClickOnToggle) {
+                this.applyMenuState(false);
             }
         });
 
-        closeMenu();
+        // Close menu when touching/tapping outside (mobile-specific)
+        document.addEventListener('touchstart', (e) => {
+            const isOpen = this.mobileMenu.classList.contains('mobile-menu-expanded');
+            if (!isOpen) return;
+
+            const isClickInsideMenu = this.mobileMenu.contains(e.target);
+            const isClickOnToggle = this.toggleButton.contains(e.target);
+
+            if (!isClickInsideMenu && !isClickOnToggle) {
+                this.applyMenuState(false);
+            }
+        }, { passive: true });
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth >= 1024) {
+                this.applyMenuState(false);
+            }
+        });
     }
 
     applyMenuState(isOpen) {
