@@ -1,0 +1,571 @@
+{
+	"info": {
+		"_postman_id": "af8d9c42-1234-5678-9abc-def012345678",
+		"name": "🚀 AI Flight Recorder API",
+		"description": "Comprehensive API collection for the AI Flight Recorder monitoring system. This collection provides endpoints for agent monitoring, compliance checking, security analysis, and system management.\n\n**Base URL:** `http://127.0.0.1:8000`\n\n**Features:**\n- 🏠 Core Application endpoints (5)\n- 🔐 Authentication & Authorization (4) \n- 🔧 System Services monitoring (1)\n- 📊 Agent Monitoring & Metrics (5)\n- 🔍 Audit & Compliance tracking (2)\n- 🔒 Security & Anomaly detection (1)\n- ✅ Approval Workflow management (1)\n\n**Total: 18 API Endpoints**",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "12345678"
+	},
+	"item": [
+		{
+			"name": "🏠 Core Application",
+			"item": [
+				{
+					"name": "Root - Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Returns the main dashboard HTML page"
+					},
+					"response": []
+				},
+				{
+					"name": "Login Page",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"login"
+							]
+						},
+						"description": "Returns the login HTML page"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"test"
+							]
+						},
+						"description": "Simple test endpoint to verify API connectivity"
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Health check endpoint with system status"
+					},
+					"response": []
+				},
+				{
+					"name": "API Information",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/info",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"info"
+							]
+						},
+						"description": "Get API information including version and statistics"
+					},
+					"response": []
+				}
+			],
+			"description": "Core application endpoints including dashboard, health checks, and basic information"
+		},
+		{
+			"name": "🔐 Authentication",
+			"item": [
+				{
+					"name": "API Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"admin\",\n    \"password\": \"admin123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticate user and receive access token"
+					},
+					"response": []
+				},
+				{
+					"name": "Form Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "username",
+									"value": "admin",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "admin123",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"login"
+							]
+						},
+						"description": "Form-based login for web interface"
+					},
+					"response": []
+				},
+				{
+					"name": "Auth Test",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"test"
+							]
+						},
+						"description": "Test authentication with bearer token"
+					},
+					"response": []
+				},
+				{
+					"name": "Auth Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"status"
+							]
+						},
+						"description": "Get current authentication status"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for API and web interface access"
+		},
+		{
+			"name": "🔧 System Services",
+			"item": [
+				{
+					"name": "Services Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/services/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"services",
+								"status"
+							]
+						},
+						"description": "Get status of all system services"
+					},
+					"response": []
+				}
+			],
+			"description": "System services monitoring and status endpoints"
+		},
+		{
+			"name": "📊 Agent Monitoring",
+			"item": [
+				{
+					"name": "System Metrics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/metrics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"metrics"
+							]
+						},
+						"description": "Get comprehensive system performance metrics"
+					},
+					"response": []
+				},
+				{
+					"name": "Agent Activity",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/activity",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"activity"
+							]
+						},
+						"description": "Get real-time agent activity and task information"
+					},
+					"response": []
+				},
+				{
+					"name": "Connected Agents",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/agents",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"agents"
+							]
+						},
+						"description": "Get detailed information about all connected agents"
+					},
+					"response": []
+				},
+				{
+					"name": "System Overview",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/system",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"system"
+							]
+						},
+						"description": "Get comprehensive system overview and health status"
+					},
+					"response": []
+				},
+				{
+					"name": "Dashboard Data",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/dashboard",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"dashboard"
+							]
+						},
+						"description": "Get comprehensive dashboard data in one call for real-time monitoring"
+					},
+					"response": []
+				}
+			],
+			"description": "Agent monitoring endpoints for performance metrics and system status"
+		},
+		{
+			"name": "🔍 Audit & Compliance",
+			"item": [
+				{
+					"name": "Audit Summary",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/audit/summary",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"audit",
+								"summary"
+							]
+						},
+						"description": "Get comprehensive audit summary and compliance status"
+					},
+					"response": []
+				},
+				{
+					"name": "Compliance Violations",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/compliance/violations",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"compliance",
+								"violations"
+							]
+						},
+						"description": "Get detailed compliance violations and resolution status"
+					},
+					"response": []
+				}
+			],
+			"description": "Audit and compliance monitoring endpoints"
+		},
+		{
+			"name": "🔒 Security & Anomalies",
+			"item": [
+				{
+					"name": "Security Anomalies",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/anomalies",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"anomalies"
+							]
+						},
+						"description": "Get security anomalies and threat detection results"
+					},
+					"response": []
+				}
+			],
+			"description": "Security monitoring and anomaly detection endpoints"
+		},
+		{
+			"name": "✅ Approval Workflows",
+			"item": [
+				{
+					"name": "Pending Approvals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/approvals/pending",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"monitoring",
+								"approvals",
+								"pending"
+							]
+						},
+						"description": "Get all pending approval requests and workflow status"
+					},
+					"response": []
+				}
+			],
+			"description": "Approval workflow management endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if needed",
+					"if (pm.globals.get('token_expiry') && new Date() > new Date(pm.globals.get('token_expiry'))) {",
+					"    console.log('Token expired, clearing...');",
+					"    pm.globals.unset('token');",
+					"    pm.globals.unset('token_expiry');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-store authentication token",
+					"if (pm.request.url.path.includes('auth/login') && pm.response.code === 200) {",
+					"    const response = pm.response.json();",
+					"    if (response.access_token) {",
+					"        pm.globals.set('token', response.access_token);",
+					"        // Set expiry time (assuming 1 hour default)",
+					"        const expiry = new Date();",
+					"        expiry.setHours(expiry.getHours() + 1);",
+					"        pm.globals.set('token_expiry', expiry.toISOString());",
+					"        console.log('Token stored:', response.access_token.substring(0, 20) + '...');",
+					"    }",
+					"}",
+					"",
+					"// Log response status",
+					"if (pm.response.code >= 400) {",
+					"    console.log('❌ Request failed:', pm.response.code, pm.response.status);",
+					"} else {",
+					"    console.log('✅ Request successful:', pm.response.code, pm.response.status);",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string",
+			"description": "Base URL for the AI Flight Recorder API"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string",
+			"description": "Authentication token (auto-populated after login)"
+		}
+	]
+}

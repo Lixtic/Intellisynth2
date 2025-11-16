@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start AI Flight Recorder Server",
+			"type": "shell",
+			"command": "C:/Users/akonr/Documents/code/ai_flight_recorder_backend_with_db/.venv/Scripts/uvicorn.exe",
+			"args": [
+				"app.main:app",
+				"--reload",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				"8000"
+			],
+			"group": "build",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

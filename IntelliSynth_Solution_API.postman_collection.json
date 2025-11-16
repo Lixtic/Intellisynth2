@@ -1,0 +1,445 @@
+{
+	"info": {
+		"_postman_id": "is8d9c42-1234-5678-9abc-def012345678",
+		"name": "🚀 IntelliSynth Solution API",
+		"description": "**Comprehensive API collection for simulating AI agent actions and monitoring**\n\nThis collection provides complete examples for simulating AI agent behaviors, testing monitoring capabilities, and validating the IntelliSynth Solution system.\n\n**🌐 Base URL:** `http://127.0.0.1:8000`\n\n**🎯 Use Cases:**\n- 🤖 **Simulate AI Agent Activities** - Log decisions, computations, and data processing\n- 🔍 **Test Anomaly Detection** - Create patterns that trigger alerts\n- ⚖️ **Compliance Testing** - Generate compliance events and violations\n- 📊 **Monitoring Validation** - Verify real-time monitoring and dashboards\n- 🔒 **Security Testing** - Test authentication and authorization\n\n**📂 Collection Structure:**\n- 🏠 Core Application (5 endpoints)\n- 🔐 Authentication & Authorization (4 endpoints) \n- 🤖 **Agent Simulation** (Custom examples)\n- 📋 Activity Logging (4 endpoints)\n- 🔍 Monitoring & Analytics (5 endpoints)\n- ⚖️ Compliance & Security (3 endpoints)\n\n**🔧 Setup Instructions:**\n1. Set `baseUrl` variable to `http://127.0.0.1:8000`\n2. Run authentication to get demo credentials\n3. Use the Agent Simulation folder to create realistic agent behaviors\n4. Monitor results via Dashboard: `http://127.0.0.1:8000/`\n\n**Total: 21+ API Endpoints + Agent Simulation Examples**",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "intellisynth2025"
+	},
+	"item": [
+		{
+			"name": "🤖 Agent Simulation Examples",
+			"item": [
+				{
+					"name": "🎯 Decision Agent - High Confidence",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"decision_agent_01\",\n    \"action_type\": \"decision\",\n    \"message\": \"Market analysis completed - recommending BUY action\",\n    \"severity\": \"info\",\n    \"data\": {\n        \"decision_type\": \"market_trade\",\n        \"confidence\": 0.92,\n        \"execution_time\": 1250,\n        \"factors_analyzed\": [\n            \"market_volatility\",\n            \"historical_trends\",\n            \"volume_analysis\",\n            \"sentiment_analysis\"\n        ],\n        \"recommendation\": \"BUY\",\n        \"risk_score\": 0.15,\n        \"expected_return\": 0.08,\n        \"metadata\": {\n            \"model_version\": \"v2.1.5\",\n            \"context\": \"market_analysis\",\n            \"data_sources\": 4,\n            \"processing_pipeline\": \"enhanced_ml\"\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates a decision-making AI agent with high confidence making a market trade recommendation. This creates realistic activity data for monitoring."
+					},
+					"response": []
+				},
+				{
+					"name": "🧮 Computation Agent - Complex Analysis",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"compute_engine_02\",\n    \"action_type\": \"computation\",\n    \"message\": \"Deep neural network training iteration 1,250 completed\",\n    \"severity\": \"info\",\n    \"data\": {\n        \"computation_type\": \"neural_network_training\",\n        \"execution_time\": 8750,\n        \"cpu_usage\": 87.5,\n        \"memory_usage\": 72.3,\n        \"gpu_usage\": 95.2,\n        \"iteration\": 1250,\n        \"loss_function\": 0.0023,\n        \"accuracy\": 0.9847,\n        \"learning_rate\": 0.001,\n        \"batch_size\": 128,\n        \"parameters_optimized\": 2847592,\n        \"metadata\": {\n            \"model_architecture\": \"transformer\",\n            \"dataset_size\": \"500GB\",\n            \"training_mode\": \"distributed\",\n            \"optimization_method\": \"adam\"\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates a computational AI agent performing intensive neural network training. High resource usage example for monitoring."
+					},
+					"response": []
+				},
+				{
+					"name": "🚨 Error-Prone Agent - System Failure",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"database_connector\",\n    \"action_type\": \"error\",\n    \"message\": \"Database connection timeout - retrying with backup connection\",\n    \"severity\": \"high\",\n    \"data\": {\n        \"error_code\": \"DB_CONN_TIMEOUT_001\",\n        \"execution_time\": 30000,\n        \"error_type\": \"connection_timeout\",\n        \"retry_count\": 3,\n        \"max_retries\": 5,\n        \"connection_string\": \"postgresql://prod-db:5432/agents\",\n        \"timeout_duration\": \"30s\",\n        \"fallback_strategy\": \"backup_connection\",\n        \"impact_assessment\": {\n            \"affected_operations\": 15,\n            \"blocked_agents\": 3,\n            \"estimated_downtime\": \"45s\"\n        },\n        \"metadata\": {\n            \"database_health\": \"degraded\",\n            \"connection_pool_status\": \"exhausted\",\n            \"last_successful_connection\": \"2025-08-07T17:45:23Z\"\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates an agent experiencing system failures. Creates high-severity activities that should trigger anomaly detection."
+					},
+					"response": []
+				},
+				{
+					"name": "🔍 Data Collection Agent - Batch Processing",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"data_collector_03\",\n    \"action_type\": \"data_collection\",\n    \"message\": \"Batch data ingestion from external APIs completed\",\n    \"severity\": \"info\",\n    \"data\": {\n        \"collection_type\": \"batch_api_ingestion\",\n        \"execution_time\": 3420,\n        \"records_processed\": 45673,\n        \"data_sources\": [\n            \"market_data_api\",\n            \"news_sentiment_api\",\n            \"social_media_api\",\n            \"economic_indicators_api\"\n        ],\n        \"data_quality_score\": 0.94,\n        \"validation_passed\": true,\n        \"duplicate_records_filtered\": 1247,\n        \"data_freshness\": \"real-time\",\n        \"storage_location\": \"/data/ingested/2025-08-07/\",\n        \"compression_ratio\": 0.73,\n        \"metadata\": {\n            \"ingestion_pipeline\": \"v3.2.1\",\n            \"data_format\": \"parquet\",\n            \"schema_validation\": \"passed\",\n            \"enrichment_applied\": true\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates a data collection agent processing large batches of information from multiple sources."
+					},
+					"response": []
+				},
+				{
+					"name": "⚠️ Suspicious Agent - Anomalous Behavior",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"suspicious_agent_99\",\n    \"action_type\": \"decision\",\n    \"message\": \"Unusual trading pattern detected in agent behavior\",\n    \"severity\": \"warning\",\n    \"data\": {\n        \"decision_type\": \"high_frequency_trade\",\n        \"confidence\": 0.23,\n        \"execution_time\": 45,\n        \"trades_per_second\": 127,\n        \"unusual_patterns\": [\n            \"off_hours_trading\",\n            \"abnormal_volume\",\n            \"rapid_strategy_changes\"\n        ],\n        \"risk_indicators\": {\n            \"deviation_from_norm\": 3.2,\n            \"volatility_spike\": true,\n            \"correlation_anomaly\": 0.89\n        },\n        \"potential_causes\": [\n            \"market_manipulation_attempt\",\n            \"algorithm_malfunction\",\n            \"external_interference\"\n        ],\n        \"metadata\": {\n            \"anomaly_score\": 0.87,\n            \"behavioral_pattern\": \"highly_unusual\",\n            \"requires_investigation\": true,\n            \"alert_level\": \"medium\"\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates suspicious agent behavior that should trigger anomaly detection and compliance alerts."
+					},
+					"response": []
+				},
+				{
+					"name": "🔒 Security Agent - Threat Detection",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"agent_id\": \"security_monitor_01\",\n    \"action_type\": \"security_scan\",\n    \"message\": \"Potential security threat detected - initiating containment protocols\",\n    \"severity\": \"critical\",\n    \"data\": {\n        \"threat_type\": \"unauthorized_access_attempt\",\n        \"execution_time\": 2100,\n        \"threat_level\": \"critical\",\n        \"attack_vector\": \"api_brute_force\",\n        \"source_ip\": \"192.168.1.247\",\n        \"failed_attempts\": 47,\n        \"time_window\": \"60s\",\n        \"affected_endpoints\": [\n            \"/api/auth/login\",\n            \"/api/auth/token\",\n            \"/api/admin/users\"\n        ],\n        \"containment_actions\": [\n            \"ip_blacklist_added\",\n            \"rate_limiting_enabled\",\n            \"security_team_notified\"\n        ],\n        \"investigation_id\": \"SEC-2025-08-07-001\",\n        \"metadata\": {\n            \"detection_method\": \"behavioral_analysis\",\n            \"confidence_score\": 0.96,\n            \"false_positive_probability\": 0.02,\n            \"automated_response\": \"enabled\"\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Simulates a security monitoring agent detecting and responding to potential threats."
+					},
+					"response": []
+				}
+			],
+			"description": "🤖 **Agent Simulation Examples**\n\nThis folder contains realistic examples of AI agent activities that you can use to:\n\n1. **Test System Monitoring** - Generate realistic agent activity data\n2. **Trigger Anomaly Detection** - Create patterns that should raise alerts\n3. **Validate Dashboards** - See real-time updates in the web interface\n4. **Test Compliance** - Generate activities that may violate policies\n5. **Load Testing** - Simulate multiple agents working simultaneously\n\n**💡 Usage Tips:**\n- Run multiple requests to simulate active agent populations\n- Vary the `agent_id` to simulate different agents\n- Adjust `execution_time` to test performance monitoring\n- Change `severity` levels to test alert systems\n- Use `confidence` scores to test behavioral analysis\n\n**📊 Monitor Results:**\n- Dashboard: `http://127.0.0.1:8000/`\n- Activity Log: `http://127.0.0.1:8000/activity-log`\n- Anomaly Detection: `GET /api/monitoring/anomalies`"
+		},
+		{
+			"name": "🏠 Core Application",
+			"item": [
+				{
+					"name": "Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": ["{{baseUrl}}"],
+							"path": [""]
+						},
+						"description": "Returns the main IntelliSynth Solution dashboard with real-time monitoring"
+					},
+					"response": []
+				},
+				{
+					"name": "API Test",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/test",
+							"host": ["{{baseUrl}}"],
+							"path": ["test"]
+						},
+						"description": "Simple test to verify IntelliSynth Solution API is running"
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["health"]
+						},
+						"description": "System health check endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "API Information",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/info",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "info"]
+						},
+						"description": "Get comprehensive API information and statistics"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔐 Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"demo\",\n    \"password\": \"demo123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						},
+						"description": "Authenticate with demo credentials"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Authentication",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/test",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "test"]
+						},
+						"description": "Test authentication endpoint"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📋 Activity Logging",
+			"item": [
+				{
+					"name": "Get Activity Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs?limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Retrieve recent activity logs"
+					},
+					"response": []
+				},
+				{
+					"name": "Activity Log Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs/stats",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs", "stats"]
+						},
+						"description": "Get activity log statistics and metrics"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Integrity",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/activity-logs/verify-integrity",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "activity-logs", "verify-integrity"]
+						},
+						"description": "Verify the cryptographic integrity of activity logs"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔍 Monitoring & Analytics",
+			"item": [
+				{
+					"name": "System Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/metrics",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "monitoring", "metrics"]
+						},
+						"description": "Get real-time system metrics and performance data"
+					},
+					"response": []
+				},
+				{
+					"name": "Agent Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/agents",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "monitoring", "agents"]
+						},
+						"description": "Get status of all connected AI agents"
+					},
+					"response": []
+				},
+				{
+					"name": "Anomaly Detection",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/anomalies",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "monitoring", "anomalies"]
+						},
+						"description": "Get detected anomalies using AI-powered analysis"
+					},
+					"response": []
+				},
+				{
+					"name": "System Alerts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/monitoring/alerts",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "monitoring", "alerts"]
+						},
+						"description": "Get active system alerts and notifications"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "⚖️ Compliance & Security",
+			"item": [
+				{
+					"name": "Compliance Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/compliance/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "compliance", "status"]
+						},
+						"description": "Get current compliance status and violations"
+					},
+					"response": []
+				},
+				{
+					"name": "Audit Trail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/audit/trail",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "audit", "trail"]
+						},
+						"description": "Get comprehensive audit trail for compliance reporting"
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Set timestamp for requests",
+					"pm.globals.set(\"timestamp\", new Date().toISOString());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Basic response validation",
+					"pm.test(\"Status code is success\", function () {",
+					"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+					"});",
+					"",
+					"pm.test(\"Response time is reasonable\", function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(5000);",
+					"});",
+					"",
+					"// Log response for debugging agent simulations",
+					"if (pm.request.url.path.includes('activity-logs')) {",
+					"    console.log('Agent Activity Logged:', pm.response.json());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		}
+	]
+}

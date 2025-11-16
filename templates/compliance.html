@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Compliance management dashboard for IntelliSynth Solution">
+    <title>⚖️ Compliance Management - IntelliSynth Solution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/dashboard.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dark-bg': '#0f172a',
+                        'dark-card': '#1e293b',
+                        'accent-blue': '#3b82f6',
+                        'accent-green': '#10b981',
+                        'accent-yellow': '#f59e0b',
+                        'accent-red': '#ef4444'
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'fade-in': 'fadeIn 0.5s ease-in-out',
+                        'slide-up': 'slideUp 0.3s ease-out'
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        slideUp: {
+                            '0%': { transform: 'translateY(20px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gradient-to-br from-dark-bg via-slate-900 to-dark-bg min-h-screen text-white font-sans">
+    <!-- Navigation Header -->
+    <nav class="bg-dark-card/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/" class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                            🚀 IntelliSynth Solution
+                        </a>
+                        <span class="ml-3 text-slate-400">/</span>
+                        <span class="ml-3 text-xl font-semibold text-yellow-400">⚖️ Compliance Management</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div id="system-time" class="text-sm text-slate-400"></div>
+                    <button onclick="refreshCompliance()" 
+                            class="bg-accent-blue hover:bg-blue-600 px-3 py-1 rounded-lg text-sm transition-all"
+                            aria-label="Refresh compliance data">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
+                    <a href="/" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg text-sm transition-all">
+                        <i class="fas fa-arrow-left mr-1"></i>Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        <!-- Alert Banner -->
+        <div id="alert-banner" class="hidden mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-lg" role="alert">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle text-red-400 mr-3"></i>
+                <span id="alert-message" class="text-red-200"></span>
+                <button onclick="dismissAlert()" class="ml-auto text-red-400 hover:text-red-300"
+                        aria-label="Dismiss alert">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Compliance Overview Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Overall Score -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-sm">Compliance Score</p>
+                        <div class="flex items-center mt-1">
+                            <span id="compliance-score" class="text-3xl font-bold text-yellow-400">89%</span>
+                            <div class="ml-2 text-sm" id="score-trend">
+                                <i class="fas fa-arrow-down text-red-400"></i> -2%
+                            </div>
+                        </div>
+                        <p class="text-slate-500 text-xs mt-1">Last updated: <span id="last-updated">5 min ago</span></p>
+                    </div>
+                    <div class="text-yellow-400 text-4xl">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Violations -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-sm">Active Violations</p>
+                        <div class="flex items-center mt-1">
+                            <span id="active-violations" class="text-3xl font-bold text-red-400">2</span>
+                            <div class="ml-2 text-sm">
+                                <span class="bg-red-500/20 text-red-400 px-2 py-1 rounded text-xs">HIGH: 1</span>
+                            </div>
+                        </div>
+                        <p class="text-slate-500 text-xs mt-1">Requires immediate attention</p>
+                    </div>
+                    <div class="text-red-400 text-4xl">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resolution Rate -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-sm">Resolution Rate</p>
+                        <div class="flex items-center mt-1">
+                            <span id="resolution-rate" class="text-3xl font-bold text-green-400">89%</span>
+                            <div class="ml-2 text-green-400 text-sm">
+                                <i class="fas fa-arrow-up"></i> +5%
+                            </div>
+                        </div>
+                        <p class="text-slate-500 text-xs mt-1">Average resolution time: 4.2 hours</p>
+                    </div>
+                    <div class="text-green-400 text-4xl">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rules Monitored -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-sm">Rules Monitored</p>
+                        <div class="flex items-center mt-1">
+                            <span id="rules-count" class="text-3xl font-bold text-blue-400">47</span>
+                            <div class="ml-2 text-slate-500 text-sm">
+                                <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">42 ACTIVE</span>
+                            </div>
+                        </div>
+                        <p class="text-slate-500 text-xs mt-1">Coverage: 94.2%</p>
+                    </div>
+                    <div class="text-blue-400 text-4xl">
+                        <i class="fas fa-balance-scale"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
+            <!-- Violations Management -->
+            <div class="lg:col-span-2 bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-semibold text-white flex items-center">
+                        <i class="fas fa-exclamation-triangle text-red-400 mr-3"></i>
+                        Active Violations
+                    </h2>
+                    <div class="flex space-x-2">
+                        <select id="severity-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                            <option value="all">All Severity</option>
+                            <option value="HIGH">High</option>
+                            <option value="MEDIUM">Medium</option>
+                            <option value="LOW">Low</option>
+                        </select>
+                        <button onclick="addNewRule()" class="bg-accent-green hover:bg-green-600 px-3 py-1 rounded-lg text-sm transition-all"
+                                aria-label="Add new compliance rule">
+                            <i class="fas fa-plus mr-1"></i>Add Rule
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Violations List -->
+                <div id="violations-list" class="space-y-4 max-h-96 overflow-y-auto">
+                    <!-- Violations will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Quick Actions Panel -->
+            <div class="space-y-6">
+                
+                <!-- Compliance Actions -->
+                <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                    <h3 class="text-xl font-semibold text-white mb-4 flex items-center">
+                        <i class="fas fa-tools text-blue-400 mr-3"></i>
+                        Quick Actions
+                    </h3>
+                    <div class="space-y-3">
+                        <button onclick="runComplianceCheck()" class="w-full bg-accent-blue hover:bg-blue-600 px-4 py-2 rounded-lg text-sm transition-all flex items-center justify-center"
+                                aria-label="Run full compliance check">
+                            <i class="fas fa-search mr-2"></i>
+                            Run Full Compliance Check
+                        </button>
+                        <button onclick="generateReport()" class="w-full bg-accent-green hover:bg-green-600 px-4 py-2 rounded-lg text-sm transition-all flex items-center justify-center"
+                                aria-label="Generate compliance report">
+                            <i class="fas fa-file-alt mr-2"></i>
+                            Generate Compliance Report
+                        </button>
+                        <button onclick="exportViolations()" class="w-full bg-accent-yellow hover:bg-yellow-600 px-4 py-2 rounded-lg text-sm transition-all flex items-center justify-center"
+                                aria-label="Export violations">
+                            <i class="fas fa-download mr-2"></i>
+                            Export Violations
+                        </button>
+                        <button onclick="scheduleAudit()" class="w-full bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm transition-all flex items-center justify-center"
+                                aria-label="Schedule audit">
+                            <i class="fas fa-calendar mr-2"></i>
+                            Schedule Audit
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                    <h3 class="text-xl font-semibold text-white mb-4 flex items-center">
+                        <i class="fas fa-history text-green-400 mr-3"></i>
+                        Recent Activity
+                    </h3>
+                    <div id="recent-activity" class="space-y-3 max-h-64 overflow-y-auto">
+                        <!-- Activity will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compliance Rules Management -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            
+            <!-- Rules List -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-semibold text-white flex items-center">
+                        <i class="fas fa-list-alt text-blue-400 mr-3"></i>
+                        Compliance Rules
+                    </h2>
+                    <div class="flex space-x-2">
+                        <input type="text" id="rule-search" placeholder="Search rules..." 
+                               class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600 w-40">
+                        <button onclick="refreshRules()" class="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded-lg text-sm transition-all"
+                                aria-label="Refresh rules list">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="rules-list" class="space-y-3 max-h-80 overflow-y-auto">
+                    <!-- Rules will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Compliance Trends Chart -->
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold text-white">Compliance Trends</h3>
+                    <div class="flex space-x-2">
+                        <button id="btn-trend-7d" data-days="7" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-all">7D</button>
+                        <button id="btn-trend-30d" data-days="30" class="px-3 py-1 bg-accent-blue text-white rounded text-xs">30D</button>
+                        <button id="btn-trend-90d" data-days="90" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-all">90D</button>
+                    </div>
+                </div>
+                <div class="h-64">
+                    <canvas id="compliance-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Violation Details Modal -->
+    <div id="violation-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true">
+        <div class="bg-dark-card rounded-xl p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-2xl font-semibold text-white">Violation Details</h3>
+                <button onclick="closeViolationModal()" class="text-slate-400 hover:text-white" aria-label="Close modal">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div id="violation-details">
+                <!-- Details will be populated by JavaScript -->
+            </div>
+            <div class="flex space-x-3 mt-6">
+                <button onclick="resolveViolation()" class="bg-accent-green hover:bg-green-600 px-4 py-2 rounded-lg transition-all"
+                        aria-label="Mark as resolved">
+                    <i class="fas fa-check mr-2"></i>Mark Resolved
+                </button>
+                <button onclick="assignViolation()" class="bg-accent-blue hover:bg-blue-600 px-4 py-2 rounded-lg transition-all"
+                        aria-label="Assign violation">
+                    <i class="fas fa-user-plus mr-2"></i>Assign
+                </button>
+                <button onclick="snoozeViolation()" class="bg-accent-yellow hover:bg-yellow-600 px-4 py-2 rounded-lg transition-all"
+                        aria-label="Snooze violation">
+                    <i class="fas fa-clock mr-2"></i>Snooze
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Rule Modal -->
+    <div id="add-rule-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true">
+        <div class="bg-dark-card rounded-xl p-8 max-w-2xl w-full mx-4">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-2xl font-semibold text-white">Add Compliance Rule</h3>
+                <button onclick="closeAddRuleModal()" class="text-slate-400 hover:text-white" aria-label="Close modal">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="add-rule-form" class="space-y-4">
+                <div>
+                    <label for="rule-name" class="block text-slate-400 text-sm mb-2">Rule Name</label>
+                    <input type="text" id="rule-name" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required>
+                </div>
+                <div>
+                    <label for="rule-type" class="block text-slate-400 text-sm mb-2">Rule Type</label>
+                    <select id="rule-type" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required>
+                        <option value="data_retention">Data Retention</option>
+                        <option value="access_control">Access Control</option>
+                        <option value="audit_logging">Audit Logging</option>
+                        <option value="encryption">Encryption</option>
+                        <option value="backup_policy">Backup Policy</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="rule-severity" class="block text-slate-400 text-sm mb-2">Severity</label>
+                    <select id="rule-severity" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required>
+                        <option value="LOW">Low</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="HIGH">High</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="rule-description" class="block text-slate-400 text-sm mb-2">Description</label>
+                    <textarea id="rule-description" rows="3" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required></textarea>
+                </div>
+                <div class="flex space-x-3 pt-4">
+                    <button type="submit" class="bg-accent-green hover:bg-green-600 px-6 py-2 rounded-lg transition-all">
+                        <i class="fas fa-plus mr-2"></i>Add Rule
+                    </button>
+                    <button type="button" onclick="closeAddRuleModal()" class="bg-slate-600 hover:bg-slate-500 px-6 py-2 rounded-lg transition-all">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Schedule Audit Modal -->
+    <div id="schedule-audit-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true">
+        <div class="bg-dark-card rounded-xl p-8 max-w-md w-full mx-4">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-2xl font-semibold text-white">Schedule Audit</h3>
+                <button onclick="closeScheduleAuditModal()" class="text-slate-400 hover:text-white" aria-label="Close modal">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="schedule-audit-form" class="space-y-4">
+                <div>
+                    <label for="audit-date" class="block text-slate-400 text-sm mb-2">Audit Date</label>
+                    <input type="date" id="audit-date" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required>
+                </div>
+                <div>
+                    <label for="audit-time" class="block text-slate-400 text-sm mb-2">Audit Time</label>
+                    <input type="time" id="audit-time" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required>
+                </div>
+                <div>
+                    <label for="audit-notes" class="block text-slate-400 text-sm mb-2">Notes</label>
+                    <textarea id="audit-notes" rows="3" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600"></textarea>
+                </div>
+                <div class="flex space-x-3 pt-4">
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-lg transition-all">
+                        <i class="fas fa-calendar-check mr-2"></i>Schedule
+                    </button>
+                    <button type="button" onclick="closeScheduleAuditModal()" class="bg-slate-600 hover:bg-slate-500 px-6 py-2 rounded-lg transition-all">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-dark-card rounded-xl p-8 text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+            <p class="text-white">Loading compliance data...</p>
+        </div>
+    </div>
+
+    <!-- Floating Chatbot -->
+    <div id="chatbot" class="fixed bottom-4 right-4 z-50">
+        <button id="chatbot-toggle" class="bg-accent-blue text-white p-4 rounded-full shadow-lg hover:bg-blue-600 transition-all" aria-label="Open chatbot">
+            <i class="fas fa-comment-dots text-2xl"></i>
+        </button>
+        <div id="chatbot-window" class="hidden absolute bottom-16 right-0 w-96 bg-dark-card rounded-xl shadow-xl border border-slate-700/50 overflow-hidden">
+            <div class="p-4 border-b border-slate-700/50 flex justify-between items-center">
+                <h3 class="text-lg font-semibold">Data Analyst Assistant</h3>
+                <button id="chatbot-close" class="text-slate-400 hover:text-white" aria-label="Close chatbot">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="chat-messages" class="h-80 overflow-y-auto p-4 space-y-4 bg-slate-800/50">
+                <!-- Messages will be populated dynamically -->
+            </div>
+            <div class="p-4 border-t border-slate-700/50">
+                <div class="flex">
+                    <input id="chat-input" type="text" placeholder="Ask about logs, anomalies, metrics..." class="flex-1 bg-slate-700 rounded-l-lg p-2 text-white focus:outline-none focus:ring-2 focus:ring-accent-blue">
+                    <button id="chat-send" class="bg-accent-blue text-white px-4 rounded-r-lg hover:bg-blue-600 transition-all" aria-label="Send message">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/compliance.js"></script>
+    <script>
+        // Mock rules for demo
+        const rules = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Attach add rule form listener
+            document.getElementById('add-rule-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = document.getElementById('rule-name').value;
+                const type = document.getElementById('rule-type').value;
+                const severity = document.getElementById('rule-severity').value;
+                const description = document.getElementById('rule-description').value;
+
+                // Add to rules list (mock)
+                rules.push({ name, type, severity, description, id: 'R' + (rules.length + 1), status: 'ACTIVE', last_check: 'now', violations_count: 0 });
+                updateRulesList(rules);
+
+                // Clear form and close modal
+                e.target.reset();
+                closeAddRuleModal();
+
+                // Show success message
+                alert('Rule added successfully!');
+            });
+
+            // Attach schedule audit form listener
+            document.getElementById('schedule-audit-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const date = document.getElementById('audit-date').value;
+                const time = document.getElementById('audit-time').value;
+                const notes = document.getElementById('audit-notes').value;
+
+                // Mock scheduling
+                console.log(`Audit scheduled for ${date} at ${time}. Notes: ${notes}`);
+
+                // Clear form and close modal
+                e.target.reset();
+                closeScheduleAuditModal();
+
+                // Show success message
+                alert('Audit scheduled successfully!');
+            });
+
+            // Initial update
+            updateRulesList(rules);
+        });
+
+        // Functions for modals
+        function addNewRule() {
+            document.getElementById('add-rule-modal').classList.remove('hidden');
+        }
+
+        function closeAddRuleModal() {
+            document.getElementById('add-rule-modal').classList.add('hidden');
+        }
+
+        function scheduleAudit() {
+            document.getElementById('schedule-audit-modal').classList.remove('hidden');
+        }
+
+        function closeScheduleAuditModal() {
+            document.getElementById('schedule-audit-modal').classList.add('hidden');
+        }
+
+        // Update rules list UI
+        function updateRulesList(rulesToDisplay) {
+            const rulesList = document.getElementById('rules-list');
+            rulesList.innerHTML = '';
+            rulesToDisplay.forEach(rule => {
+                const ruleDiv = document.createElement('div');
+                ruleDiv.className = 'bg-slate-700 p-3 rounded-lg';
+                ruleDiv.innerHTML = `
+                    <div class="flex justify-between">
+                        <span class="font-semibold">${rule.name}</span>
+                        <span class="text-xs px-2 py-1 rounded ${getSeverityColor(rule.severity)}">${rule.severity}</span>
+                    </div>
+                    <p class="text-slate-400 text-sm mt-1">${rule.description}</p>
+                `;
+                rulesList.appendChild(ruleDiv);
+            });
+        }
+
+        function getSeverityColor(severity) {
+            switch (severity) {
+                case 'HIGH': return 'bg-red-500/20 text-red-400';
+                case 'MEDIUM': return 'bg-yellow-500/20 text-yellow-400';
+                default: return 'bg-green-500/20 text-green-400';
+            }
+        }
+
+        // Sample data structures simulating access to logs, metrics, anomalies, etc.
+        const sampleData = {
+            logs: [
+                { timestamp: '2025-08-20T10:15:30Z', agent_id: 'agent-1', action: 'analysis', message: 'Processed data batch 123', severity: 'info' },
+                { timestamp: '2025-08-20T10:20:45Z', agent_id: 'agent-2', action: 'error', message: 'Failed to connect to database', severity: 'high' },
+                { timestamp: '2025-08-20T10:25:10Z', agent_id: 'anomaly-detector', action: 'detection', message: 'Detected 3 anomalies', severity: 'medium' },
+                { timestamp: '2025-08-20T10:30:00Z', agent_id: 'agent-3', action: 'decision', message: 'Approved transaction', severity: 'info' },
+                // Add more sample logs as needed
+            ],
+            anomalies: [
+                { id: 'STAT-1724145930', type: 'statistical_outlier', metric: 'error_rate', value: 0.15, severity: 'medium', timestamp: '2025-08-20T10:25:30Z', description: 'Error rate higher than baseline' },
+                { id: 'PAT-agent1-1724145945', type: 'activity_pattern', agent_id: 'agent-1', metric: 'activity_rate_per_hour', value: 25, severity: 'low', timestamp: '2025-08-20T10:25:45Z', description: 'Low activity rate' },
+                // Add more sample anomalies
+            ],
+            metrics: {
+                cpu_usage: 45,
+                memory_usage: 68,
+                error_rate: 0.02,
+                active_agents: 11,
+                tasks_completed: 1847,
+                compliance_score: 89
+            },
+            appInfo: {
+                version: '1.0.0',
+                uptime: '99.9%',
+                api_endpoints: 18,
+                last_check: '5 min ago'
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const chatbotToggle = document.getElementById('chatbot-toggle');
+            const chatbotWindow = document.getElementById('chatbot-window');
+            const chatbotClose = document.getElementById('chatbot-close');
+            const chatSend = document.getElementById('chat-send');
+            const chatInput = document.getElementById('chat-input');
+            const chatMessages = document.getElementById('chat-messages');
+
+            chatbotToggle.addEventListener('click', () => {
+                chatbotWindow.classList.toggle('hidden');
+            });
+
+            chatbotClose.addEventListener('click', () => {
+                chatbotWindow.classList.add('hidden');
+            });
+
+            chatSend.addEventListener('click', sendMessage);
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Initial welcome message
+            addMessage('AI', 'Hello! I\'m the Data Analyst Assistant. Ask me about logs, anomalies, metrics, or app information.');
+
+            function sendMessage() {
+                const message = chatInput.value.trim();
+                if (!message) return;
+
+                addMessage('User', message);
+                chatInput.value = '';
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                // Process the message and generate response
+                setTimeout(() => {
+                    const response = analyzeQuery(message);
+                    addMessage('AI', response);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }, 500); // Simulate thinking time
+            }
+
+            function addMessage(sender, content) {
+                const msgDiv = document.createElement('div');
+                msgDiv.classList.add('flex', sender === 'User' ? 'justify-end' : 'justify-start');
+                const bubbleClass = sender === 'User' ? 'bg-accent-blue text-white' : 'bg-slate-700 text-white';
+                msgDiv.innerHTML = `<div class="${bubbleClass} px-4 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap">${content}</div>`;
+                chatMessages.appendChild(msgDiv);
+            }
+
+            function analyzeQuery(query) {
+                const lowerQuery = query.toLowerCase();
+
+                // Interpret and locate specific logs
+                if (lowerQuery.includes('logs')) {
+                    if (lowerQuery.includes('error')) {
+                        const errorLogs = sampleData.logs.filter(log => log.severity === 'high' || log.action === 'error');
+                        return formatLogs(errorLogs, 'Error Logs:');
+                    } else if (lowerQuery.includes('agent')) {
+                        const agentId = extractAgentId(query);
+                        if (agentId) {
+                            const agentLogs = sampleData.logs.filter(log => log.agent_id === agentId);
+                            return formatLogs(agentLogs, `Logs for ${agentId}:`);
+                        }
+                    } else if (lowerQuery.includes('recent')) {
+                        const recentLogs = sampleData.logs.slice(-5);
+                        return formatLogs(recentLogs, 'Recent Logs:');
+                    }
+                    return formatLogs(sampleData.logs, 'All Logs:');
+                }
+
+                // Anomalies
+                if (lowerQuery.includes('anomalies') || lowerQuery.includes('anomaly')) {
+                    if (lowerQuery.includes('recent')) {
+                        const recentAnomalies = sampleData.anomalies.slice(-3);
+                        return formatAnomalies(recentAnomalies, 'Recent Anomalies:');
+                    } else if (lowerQuery.includes('critical') || lowerQuery.includes('high')) {
+                        const highSeverity = sampleData.anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
+                        return formatAnomalies(highSeverity, 'High Severity Anomalies:');
+                    }
+                    return formatAnomalies(sampleData.anomalies, 'Detected Anomalies:');
+                }
+
+                // Metrics
+                if (lowerQuery.includes('metrics') || lowerQuery.includes('usage') || lowerQuery.includes('performance')) {
+                    if (lowerQuery.includes('cpu')) {
+                        return `Current CPU Usage: ${sampleData.metrics.cpu_usage}%`;
+                    } else if (lowerQuery.includes('memory')) {
+                        return `Current Memory Usage: ${sampleData.metrics.memory_usage}%`;
+                    } else if (lowerQuery.includes('error rate')) {
+                        return `Current Error Rate: ${(sampleData.metrics.error_rate * 100).toFixed(2)}%`;
+                    } else if (lowerQuery.includes('active agents')) {
+                        return `Active Agents: ${sampleData.metrics.active_agents}`;
+                    } else if (lowerQuery.includes('tasks')) {
+                        return `Tasks Completed Today: ${sampleData.metrics.tasks_completed}`;
+                    } else if (lowerQuery.includes('compliance')) {
+                        return `Compliance Score: ${sampleData.metrics.compliance_score}%`;
+                    }
+                    return formatMetrics(sampleData.metrics);
+                }
+
+                // App information
+                if (lowerQuery.includes('app info') || lowerQuery.includes('version') || lowerQuery.includes('uptime')) {
+                    return `App Version: ${sampleData.appInfo.version}\nUptime: ${sampleData.appInfo.uptime}\nAPI Endpoints: ${sampleData.appInfo.api_endpoints}\nLast Check: ${sampleData.appInfo.last_check}`;
+                }
+
+                // Default response
+                return 'Sorry, I didn\'t understand that query. Please ask about logs, anomalies, metrics, or app information.';
+            }
+
+            function formatLogs(logs, title) {
+                if (logs.length === 0) return 'No logs found.';
+                let formatted = title + '\n\n';
+                logs.forEach(log => {
+                    formatted += `[${log.timestamp}] ${log.agent_id}: ${log.message} (Severity: ${log.severity})\n`;
+                });
+                return formatted;
+            }
+
+            function formatAnomalies(anomalies, title) {
+                if (anomalies.length === 0) return 'No anomalies found.';
+                let formatted = title + '\n\n';
+                anomalies.forEach(a => {
+                    formatted += `ID: ${a.id} | Type: ${a.type} | Severity: ${a.severity} | ${a.description}\n`;
+                });
+                return formatted;
+            }
+
+            function formatMetrics(metrics) {
+                return `System Metrics:\n- CPU: ${metrics.cpu_usage}%\n- Memory: ${metrics.memory_usage}%\n- Error Rate: ${(metrics.error_rate * 100).toFixed(2)}%\n- Active Agents: ${metrics.active_agents}\n- Tasks Today: ${metrics.tasks_completed}\n- Compliance: ${metrics.compliance_score}%`;
+            }
+
+            function extractAgentId(query) {
+                const match = query.match(/agent[\s-]?(\w+)/i);
+                return match ? `agent-${match[1]}` : null;
+            }
+        });
+    </script>
+</body>
+</html>
+```

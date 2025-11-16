@@ -277,7 +277,6 @@ async def get_activity_logs(
         severity=severity,
         since=since_datetime
     )
-    
     return activities
 
 @app.get("/api/activity-logs/latest", tags=["📋 Activity Log"],
@@ -294,6 +293,7 @@ async def get_latest_activities(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid timestamp format")
     
+    # Get latest activities
     activities = activity_logger.get_latest_activities(since_datetime, limit)
     return activities
 
@@ -305,7 +305,9 @@ async def get_activity_stats(
 ):
     """Get comprehensive activity log statistics"""
     
+    # Get stats from the activity logger service
     stats = activity_logger.get_activity_stats()
+    # Remove simulated values: always return empty hourly_activity and agent_distribution if no activities
     if not stats.get('total_activities'):
         stats['hourly_activity'] = [0] * 24
         stats['agent_distribution'] = {}
@@ -317,14 +319,8 @@ async def get_activity_stats(
 async def get_agents():
     """Get list of active AI agents for filtering and monitoring"""
     
-    # Example agent data for filter dropdown
-    return [
-        {"id": "ai-monitor", "name": "AI Monitor Agent", "status": "active"},
-        {"id": "compliance-agent", "name": "Compliance Agent", "status": "active"},
-        {"id": "security-scanner", "name": "Security Scanner", "status": "active"},
-        {"id": "data-analyst", "name": "Data Analyst", "status": "active"},
-        {"id": "anomaly-detector", "name": "Anomaly Detector", "status": "active"}
-    ]
+    # Return empty list (no simulated agents)
+    return []
 
 @app.get("/api/activity-logs/verify-integrity", tags=["📋 Activity Log"],
          summary="Verify Record Integrity",
@@ -936,156 +932,6 @@ async def create_activity_log(activity: ActivityLogCreate):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create activity log: {str(e)}")
-
-# ==========================================
-# REPORT MANAGEMENT ENDPOINTS
-# ==========================================
-
-from app.services.report_service import ReportService
-
-# Initialize report service
-report_service = ReportService()
-report_service.initialize()
-
-@app.get("/reports", 
-         response_class=HTMLResponse,
-         tags=["🏠 Core Application"],
-         summary="Reports Dashboard",
-         description="Interactive reports dashboard showing generated reports, analytics, and export options")
-async def reports_page(request: Request):
-    """Reports dashboard page"""
-    return templates.TemplateResponse("reports.html", {"request": request})
-
-@app.get("/api/reports", 
-         tags=["📊 Report Management"],
-         summary="Get All Reports",
-         description="Retrieve list of all generated reports with metadata")
-async def get_reports():
-    """Get all generated reports"""
-    try:
-        reports = report_service.get_recent_reports(50)  # Get last 50 reports
-        return {
-            "reports": reports,
-            "total": len(reports),
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "success"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve reports: {str(e)}")
-
-@app.get("/api/reports/types",
-         tags=["📊 Report Management"],
-         summary="Get Available Report Types",
-         description="Get list of available report types that can be generated")
-async def get_report_types():
-    """Get available report types"""
-    try:
-        return {
-            "report_types": report_service.get_available_report_types(),
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "success"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get report types: {str(e)}")
-
-@app.post("/api/reports/generate",
-          tags=["📊 Report Management"],
-          summary="Generate New Report",
-          description="Generate a new report of specified type with optional parameters")
-async def generate_report(report_type: str = Query(..., description="Type of report to generate"),
-                         time_period: str = Query("24h", description="Time period for the report")):
-    """Generate a new report"""
-    try:
-        parameters = {"time_period": time_period}
-        report = report_service.generate_report(report_type, parameters)
-        return {
-            "report": report,
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "success"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
-
-@app.get("/api/reports/{report_id}",
-         tags=["📊 Report Management"],
-         summary="Get Specific Report",
-         description="Retrieve a specific report by ID")
-async def get_report(report_id: str):
-    """Get a specific report by ID"""
-    try:
-        report = report_service.get_report(report_id)
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        return {
-            "report": report,
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "success"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve report: {str(e)}")
-
-@app.get("/api/reports/{report_id}/export",
-         tags=["📊 Report Management"],
-         summary="Export Report",
-         description="Export a report in specified format (json, csv, text)")
-async def export_report(report_id: str, format: str = Query("json", description="Export format")):
-    """Export a report in specified format"""
-    try:
-        exported_data = report_service.export_report(report_id, format)
-        
-        # Set appropriate content type
-        if format.lower() == "csv":
-            media_type = "text/csv"
-            filename = f"report_{report_id}.csv"
-        elif format.lower() == "text":
-            media_type = "text/plain"
-            filename = f"report_{report_id}.txt"
-        else:
-            media_type = "application/json"
-            filename = f"report_{report_id}.json"
-        
-        from fastapi.responses import Response
-        return Response(
-            content=exported_data,
-            media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to export report: {str(e)}")
-
-@app.get("/api/reports/summary",
-         tags=["📊 Report Management"],
-         summary="Get Reports Summary",
-         description="Get summary statistics about report generation")
-async def get_reports_summary():
-    """Get reports summary statistics"""
-    try:
-        summary = report_service.get_report_summary()
-        return {
-            "summary": summary,
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "success"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get reports summary: {str(e)}")
-
-# Place this at the end of the file, after all other endpoint definitions
-
-from fastapi import Body
-from pydantic import BaseModel
-from app.services.data_analyst_chatbot import chatbot_service
-
-class ChatRequest(BaseModel):
-    message: str
-
-@app.post("/api/chat", tags=["🏠 Core Application"], summary="Data Analyst Chatbot", description="Chatbot for querying logs and app data.")
-async def chat_with_data_analyst(request: ChatRequest):
-    """Chatbot endpoint for data analysis and log search."""
-    result = chatbot_service.answer(request.message)
-    return {"response": result["answer"], "logs": result.get("logs", []), "timestamp": result.get("timestamp")}
 
 if __name__ == "__main__":
     import uvicorn
