@@ -1,17 +1,25 @@
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, HTTPException, Query, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Type
 from pydantic import BaseModel, Field
 import logging
 import random
 import hashlib
 
 # Import database
+from sqlalchemy.orm import Session
+
 from app.database import SessionLocal
 from app.models.activity_log import ActivityLog
+from app.models.compliance_rule import (
+    ComplianceRule,
+    RuleStatus,
+    RuleType,
+    SeverityLevel,
+)
 
 # Import activity logger service
 from app.services.activity_logger import activity_logger
@@ -23,6 +31,96 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _safe_enum_value(enum_cls: Type, value, default):
+    """Safely convert raw values into Enum members."""
+    if value is None:
+        return default
+    if isinstance(value, enum_cls):
+        return value
+    try:
+        return enum_cls(value)
+    except (ValueError, TypeError):
+        if isinstance(value, str):
+            try:
+                return enum_cls[value.upper()]
+            except KeyError:
+                return default
+        return default
+
+
+def _format_relative_time(timestamp: Optional[datetime]) -> str:
+    if not timestamp:
+        return "Not checked yet"
+    delta = datetime.utcnow() - timestamp
+    seconds = int(delta.total_seconds())
+    if seconds < 15:
+        return "just now"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+
+def _serialize_compliance_rule(rule: ComplianceRule) -> Dict[str, Any]:
+    return {
+        "id": rule.id,
+        "name": rule.name,
+        "type": rule.rule_type.value if rule.rule_type else None,
+        "rule_type": rule.rule_type.value if rule.rule_type else None,
+        "severity": rule.severity.value if rule.severity else None,
+        "status": rule.status.value if rule.status else None,
+        "description": rule.description,
+        "last_check": _format_relative_time(rule.last_check_date),
+        "last_check_date": rule.last_check_date.isoformat() if rule.last_check_date else None,
+        "violations_count": rule.violations_count or 0,
+        "framework": rule.framework,
+        "regulation_reference": rule.regulation_reference,
+        "is_automated": rule.is_automated,
+        "priority": rule.priority,
+        "conditions": rule.conditions or {},
+        "parameters": rule.parameters or {},
+    }
+
+
+def _get_or_seed_compliance_rules(db: Session) -> List[ComplianceRule]:
+    has_rules = db.query(ComplianceRule.id).first()
+    if not has_rules:
+        defaults = ComplianceRule.create_default_rules()
+        now = datetime.utcnow()
+        for index, rule in enumerate(defaults, start=1):
+            rule.last_check_date = now - timedelta(minutes=index * 5)
+            rule.created_by = rule.created_by or "system"
+            rule.updated_by = rule.updated_by or "system"
+            if not rule.priority:
+                rule.priority = index * 10
+            db.add(rule)
+        db.commit()
+    return (
+        db.query(ComplianceRule)
+        .order_by(ComplianceRule.priority.asc(), ComplianceRule.name.asc())
+        .all()
+    )
+
+
+def _build_compliance_rules_response(db: Session) -> Dict[str, Any]:
+    rules = _get_or_seed_compliance_rules(db)
+    active_count = sum(1 for rule in rules if rule.status == RuleStatus.ACTIVE)
+    coverage = round((active_count / len(rules)) * 100, 1) if rules else 0.0
+    return {
+        "rules": [_serialize_compliance_rule(rule) for rule in rules],
+        "total_count": len(rules),
+        "active_count": active_count,
+        "coverage_percentage": coverage,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 # Pydantic models for activity logging
 class ActivityLogCreate(BaseModel):
@@ -646,50 +744,56 @@ async def get_compliance_violations():
 @app.get("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
          summary="Compliance Rules",
          description="Get all compliance rules with their status and violation counts")
-async def get_compliance_rules():
+async def get_compliance_rules(db: Session = Depends(get_db)):
     """Get compliance rules for management interface"""
-    rules = []
-    return {
-        "rules": rules,
-        "total_count": 0,
-        "active_count": 0,
-        "coverage_percentage": 0.0,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return _build_compliance_rules_response(db)
 
 @app.get("/api/rules", tags=["🔍 Audit & Compliance"],
          summary="Rules List",
          description="Get compliance rules list (compatibility endpoint)")
-async def get_rules():
+async def get_rules(db: Session = Depends(get_db)):
     """Get compliance rules - compatibility endpoint for frontend"""
-    # This is a compatibility endpoint that returns the same data as /api/compliance/rules
-    # but in the format expected by the compliance.js frontend
-    rules_data = await get_compliance_rules()
-    return rules_data
+    return _build_compliance_rules_response(db)
 
 @app.post("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
           summary="Add Compliance Rule",
           description="Create a new compliance rule for monitoring")
-async def create_compliance_rule(rule_data: dict):
+async def create_compliance_rule(rule_data: dict, db: Session = Depends(get_db)):
     """Create a new compliance rule"""
-    # In a real implementation, this would save to database
-    new_rule = {
-        "id": f"R{len(rule_data) + 1:03d}",
-        "name": rule_data.get("name", "New Rule"),
-        "type": rule_data.get("type", "data_retention"),
-        "severity": rule_data.get("severity", "MEDIUM"),
-        "status": "ACTIVE",
-        "description": rule_data.get("description", ""),
-        "last_check": "Just created",
-        "violations_count": 0,
-        "created": datetime.utcnow().isoformat(),
-        "updated": datetime.utcnow().isoformat()
-    }
+    rule_type_value = rule_data.get("type") or rule_data.get("rule_type") or RuleType.CUSTOM.value
+    severity_value = rule_data.get("severity") or SeverityLevel.MEDIUM.value
+    status_value = rule_data.get("status") or RuleStatus.ACTIVE.value
+
+    priority_value = rule_data.get("priority")
+    try:
+        priority_value = int(priority_value)
+    except (TypeError, ValueError):
+        priority_value = 100
+
+    new_rule = ComplianceRule(
+        name=rule_data.get("name", "New Rule"),
+        description=rule_data.get("description", ""),
+        rule_type=_safe_enum_value(RuleType, rule_type_value, RuleType.CUSTOM),
+        severity=_safe_enum_value(SeverityLevel, severity_value, SeverityLevel.MEDIUM),
+        status=_safe_enum_value(RuleStatus, status_value, RuleStatus.ACTIVE),
+        conditions=rule_data.get("conditions"),
+        parameters=rule_data.get("parameters"),
+        framework=rule_data.get("framework"),
+        regulation_reference=rule_data.get("regulation_reference"),
+        is_automated=rule_data.get("is_automated", True),
+        priority=priority_value,
+        created_by=rule_data.get("created_by", "compliance_ui"),
+        updated_by=rule_data.get("updated_by", "compliance_ui"),
+    )
+    new_rule.last_check_date = datetime.utcnow()
+    db.add(new_rule)
+    db.commit()
+    db.refresh(new_rule)
     
     return {
         "success": True,
-        "rule": new_rule,
-        "message": f"Compliance rule '{new_rule['name']}' created successfully"
+        "rule": _serialize_compliance_rule(new_rule),
+        "message": f"Compliance rule '{new_rule.name}' created successfully"
     }
 
 @app.put("/api/compliance/violations/{violation_id}/resolve", tags=["🔍 Audit & Compliance"],

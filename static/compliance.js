@@ -266,11 +266,18 @@ class ComplianceManager {
         const rulesList = document.getElementById('rules-list');
         rulesList.innerHTML = '';
         
-        if (data.rules) {
+        if (data.rules && data.rules.length) {
             data.rules.forEach(rule => {
                 const ruleElement = this.createRuleElement(rule);
                 rulesList.appendChild(ruleElement);
             });
+        } else {
+            rulesList.innerHTML = `
+                <div class="text-slate-400 text-center py-6 border border-dashed border-slate-700 rounded-lg">
+                    <p class="text-lg font-medium mb-2">No compliance rules to display</p>
+                    <p class="text-sm">Use the "Add Rule" button to configure your first policy.</p>
+                </div>
+            `;
         }
     }
 
