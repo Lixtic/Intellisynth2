@@ -1,14 +1,18 @@
 """
 Database Initialization Script
 Creates all tables and optionally seeds sample data
+Supports both SQLite and Firebase Firestore backends
 """
 
 import argparse
 import sys
+import os
+import asyncio
 from datetime import datetime, timedelta
 from app.database import Base, engine, SessionLocal
 from app.models.activity_log import ActivityLog
 from app.models.agent import Agent, AgentStatus, AgentType
+from app.config import Config
 
 def create_tables():
     """Create all database tables"""
@@ -248,6 +252,259 @@ def seed_sample_activity_logs():
     finally:
         db.close()
 
+
+# ============================================================================
+# FIRESTORE FUNCTIONS
+# ============================================================================
+
+async def seed_firestore_agents():
+    """Seed Firestore with sample AI agents"""
+    print("\n" + "=" * 70)
+    print("  Seeding Firestore Agents")
+    print("=" * 70)
+    
+    try:
+        from app.services.agent_service_firestore import agent_service_firestore, AgentType, AgentStatus
+        
+        sample_agents = [
+            {
+                "name": "AI Monitor Agent",
+                "agent_type": AgentType.MONITOR,
+                "description": "Monitors system health and performance metrics in real-time",
+                "capabilities": ["health_check", "metrics_collection", "alerting", "uptime_monitoring"],
+                "configuration": {
+                    "check_interval": 60,
+                    "alert_threshold": 80,
+                    "metrics": ["cpu", "memory", "disk", "network"]
+                },
+                "owner": "system",
+                "tags": ["monitoring", "production", "critical"]
+            },
+            {
+                "name": "Compliance Agent",
+                "agent_type": AgentType.COMPLIANCE,
+                "description": "Ensures all AI operations comply with regulations and policies",
+                "capabilities": ["compliance_checking", "audit_trail", "policy_enforcement", "reporting"],
+                "configuration": {
+                    "check_frequency": "hourly",
+                    "policies": ["GDPR", "HIPAA", "SOC2"],
+                    "auto_remediate": False
+                },
+                "owner": "compliance_team",
+                "tags": ["compliance", "audit", "governance"]
+            },
+            {
+                "name": "Security Scanner",
+                "agent_type": AgentType.SECURITY,
+                "description": "Scans for security threats and vulnerabilities",
+                "capabilities": ["threat_detection", "vulnerability_scanning", "incident_response"],
+                "configuration": {
+                    "scan_frequency": "daily",
+                    "scan_depth": "deep",
+                    "auto_patch": False
+                },
+                "owner": "security_team",
+                "tags": ["security", "scanning", "protection"]
+            },
+            {
+                "name": "Data Analyst",
+                "agent_type": AgentType.ANALYZER,
+                "description": "Analyzes data patterns and provides insights",
+                "capabilities": ["pattern_analysis", "anomaly_detection", "report_generation"],
+                "configuration": {
+                    "analysis_type": "statistical",
+                    "confidence_threshold": 0.85,
+                    "output_format": "json"
+                },
+                "owner": "data_team",
+                "tags": ["analytics", "insights", "reporting"]
+            },
+            {
+                "name": "Anomaly Detector",
+                "agent_type": AgentType.ANALYZER,
+                "description": "Detects anomalies in system behavior and data patterns",
+                "capabilities": ["statistical_analysis", "pattern_recognition", "behavioral_analysis"],
+                "configuration": {
+                    "detection_methods": ["statistical", "pattern", "behavioral"],
+                    "sensitivity": "medium",
+                    "auto_alert": True
+                },
+                "owner": "ops_team",
+                "tags": ["anomaly", "detection", "monitoring"]
+            },
+            {
+                "name": "Data Collector",
+                "agent_type": AgentType.COLLECTOR,
+                "description": "Collects data from various sources and systems",
+                "capabilities": ["data_mining", "log_parsing", "metric_collection", "api_integration"],
+                "configuration": {
+                    "sources": ["logs", "metrics", "apis", "databases"],
+                    "collection_interval": 300,
+                    "batch_size": 1000
+                },
+                "owner": "data_team",
+                "tags": ["collection", "ingestion", "etl"]
+            },
+            {
+                "name": "Decision Maker",
+                "agent_type": AgentType.DECISION_MAKER,
+                "description": "Makes automated decisions based on rules and ML models",
+                "capabilities": ["rule_engine", "ml_inference", "automated_response"],
+                "configuration": {
+                    "decision_model": "hybrid",
+                    "confidence_required": 0.9,
+                    "human_approval_required": True
+                },
+                "owner": "ai_team",
+                "tags": ["decision", "automation", "ai"]
+            }
+        ]
+        
+        created_count = 0
+        for agent_data in sample_agents:
+            # Check if agent already exists
+            existing = await agent_service_firestore.get_agent_by_name(agent_data["name"])
+            if existing:
+                print(f"  ⊙ Agent already exists: {agent_data['name']}")
+                continue
+            
+            # Create new agent
+            await agent_service_firestore.create_agent(**agent_data)
+            created_count += 1
+            print(f"  ✓ Created agent: {agent_data['name']}")
+        
+        # Get total count
+        all_agents = await agent_service_firestore.get_all_agents()
+        
+        print(f"\n✓ Created {created_count} new agents")
+        print(f"  Total agents in Firestore: {len(all_agents)}")
+        
+        return True
+    except Exception as e:
+        print(f"✗ Error seeding Firestore agents: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def seed_firestore_activity_logs():
+    """Seed Firestore with sample activity logs"""
+    print("\n" + "=" * 70)
+    print("  Seeding Firestore Activity Logs")
+    print("=" * 70)
+    
+    try:
+        from app.services.agent_service_firestore import agent_service_firestore
+        from app.services.activity_logger_firestore import activity_logger_firestore
+        
+        # Check if we have agents to reference
+        agents = await agent_service_firestore.get_all_agents(limit=10)
+        if not agents:
+            print("  ⚠ No agents found. Skipping activity log seeding.")
+            print("    Run with --seed-agents first")
+            return True
+        
+        # Generate sample activities for the past 7 days
+        created_count = 0
+        agent_ids = [a['id'] for a in agents[:5]]  # Use first 5 agents
+        
+        for days_ago in range(7, 0, -1):
+            for i in range(5):  # 5 activities per day
+                agent_id = agent_ids[i % len(agent_ids)]
+                action_types = ["decision", "data_collection", "analysis", "compliance_check", "security_scan"]
+                action_type = action_types[i % len(action_types)]
+                severities = ["info", "medium", "high", "critical", "low"]
+                severity = severities[i % len(severities)]
+                
+                # Calculate timestamp
+                timestamp = datetime.utcnow() - timedelta(days=days_ago, hours=i)
+                
+                message = f"Sample {action_type} performed by agent"
+                
+                # Create activity log
+                await activity_logger_firestore.log_activity(
+                    agent_id=agent_id,
+                    action_type=action_type,
+                    message=message,
+                    severity=severity,
+                    data={
+                        "execution_time": 100 + (i * 50),
+                        "success": True,
+                        "metadata": {
+                            "confidence": 0.95,
+                            "impact_score": 7.5
+                        }
+                    }
+                )
+                created_count += 1
+        
+        print(f"✓ Created {created_count} activity logs")
+        
+        # Get stats
+        stats = await activity_logger_firestore.get_activity_stats()
+        print(f"  Total activity logs in Firestore: {stats['total_activities']}")
+        
+        return True
+    except Exception as e:
+        print(f"✗ Error seeding Firestore activity logs: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def check_firestore_status():
+    """Check Firestore database status"""
+    print("\n" + "=" * 70)
+    print("  Firestore Database Status")
+    print("=" * 70)
+    
+    try:
+        from app.services.agent_service_firestore import agent_service_firestore
+        from app.services.activity_logger_firestore import activity_logger_firestore
+        
+        # Check agents
+        agents = await agent_service_firestore.get_all_agents()
+        stats = await agent_service_firestore.get_agent_stats()
+        
+        print(f"\nAgents:")
+        print(f"  Total: {stats['total_agents']}")
+        print(f"  Active: {stats['active_agents']}")
+        print(f"  Inactive: {stats['inactive_agents']}")
+        
+        if agents:
+            print(f"\n  Sample agents:")
+            for agent in agents[:5]:
+                print(f"    - {agent['name']} ({agent['agent_type']}) - {agent['status']}")
+        
+        # Check activity logs
+        activity_stats = await activity_logger_firestore.get_activity_stats()
+        
+        print(f"\nActivity Logs:")
+        print(f"  Total: {activity_stats['total_activities']}")
+        print(f"  Decisions: {activity_stats['decisions']}")
+        print(f"  Data points: {activity_stats['data_points']}")
+        print(f"  Errors: {activity_stats['errors']}")
+        
+        # Get recent activities
+        recent = await activity_logger_firestore.get_activities(limit=3)
+        if recent:
+            print(f"\n  Recent activities:")
+            for log in recent:
+                timestamp = datetime.fromisoformat(log['timestamp'])
+                print(f"    - {timestamp.strftime('%Y-%m-%d %H:%M')} | {log['agent_id'][:20]} | {log['action_type']}")
+        
+        return True
+    except Exception as e:
+        print(f"✗ Error checking Firestore: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
+
 def check_database_status():
     """Check current database status"""
     print("\n" + "=" * 70)
@@ -293,9 +550,15 @@ def main():
         description="Initialize and seed the AI Flight Recorder database"
     )
     parser.add_argument(
+        "--backend",
+        choices=["sqlite", "firebase", "both"],
+        default=None,
+        help="Database backend to initialize (default: use DATABASE_TYPE from .env)"
+    )
+    parser.add_argument(
         "--create-tables",
         action="store_true",
-        help="Create all database tables"
+        help="Create all database tables (SQLite only)"
     )
     parser.add_argument(
         "--seed-agents",
@@ -329,6 +592,15 @@ def main():
     print("  AI FLIGHT RECORDER - DATABASE INITIALIZATION")
     print("=" * 70)
     
+    # Determine which backend(s) to use
+    if args.backend:
+        backend = args.backend
+    else:
+        backend = Config.DATABASE_TYPE
+    
+    print(f"\nBackend: {backend.upper()}")
+    print("=" * 70)
+    
     success = True
     
     # Handle --all flag
@@ -337,35 +609,78 @@ def main():
         args.seed_agents = True
         args.seed_logs = True
     
-    # Create tables
-    if args.create_tables:
-        if not create_tables():
-            success = False
+    # SQLite Operations
+    if backend in ["sqlite", "both"]:
+        print("\n" + "=" * 70)
+        print("  SQLITE OPERATIONS")
+        print("=" * 70)
+        
+        # Create tables
+        if args.create_tables:
+            if not create_tables():
+                success = False
+        
+        # Seed agents
+        if args.seed_agents and success:
+            if not seed_sample_agents():
+                success = False
+        
+        # Seed logs
+        if args.seed_logs and success:
+            if not seed_sample_activity_logs():
+                success = False
+        
+        # Check status
+        if args.status:
+            check_database_status()
     
-    # Seed agents
-    if args.seed_agents and success:
-        if not seed_sample_agents():
+    # Firebase Operations
+    if backend in ["firebase", "both"]:
+        print("\n" + "=" * 70)
+        print("  FIREBASE OPERATIONS")
+        print("=" * 70)
+        
+        # Initialize Firebase
+        from app.firebase_config import firebase_config
+        creds_path = os.getenv('FIREBASE_CREDENTIALS', './intellisynth-c1050-firebase-adminsdk-fbsvc-61edd8337e.json')
+        
+        if not firebase_config.initialize(creds_path):
+            print("✗ Failed to initialize Firebase")
+            print("  Please check FIREBASE_CREDENTIALS in .env file")
             success = False
-    
-    # Seed logs
-    if args.seed_logs and success:
-        if not seed_sample_activity_logs():
-            success = False
-    
-    # Check status
-    if args.status:
-        check_database_status()
+        else:
+            print("✓ Firebase initialized")
+            
+            # Run async operations
+            async def run_firebase_ops():
+                nonlocal success
+                
+                # Seed agents
+                if args.seed_agents:
+                    if not await seed_firestore_agents():
+                        success = False
+                
+                # Seed logs
+                if args.seed_logs and success:
+                    if not await seed_firestore_activity_logs():
+                        success = False
+                
+                # Check status
+                if args.status:
+                    await check_firestore_status()
+            
+            # Run async operations
+            asyncio.run(run_firebase_ops())
     
     # Final summary
+    print("\n" + "=" * 70)
     if success:
-        print("\n" + "=" * 70)
         print("  ✓ DATABASE INITIALIZATION COMPLETE!")
-        print("=" * 70)
-        check_database_status()
     else:
-        print("\n" + "=" * 70)
         print("  ✗ DATABASE INITIALIZATION FAILED")
-        print("=" * 70)
+    print("=" * 70)
+    
+    if not success:
         sys.exit(1)
 
 if __name__ == "__main__":
