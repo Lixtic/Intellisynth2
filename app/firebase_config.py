@@ -119,6 +119,7 @@ class Collections:
     COMPLIANCE_VIOLATIONS = "compliance_violations"
     USERS = "users"
     SESSIONS = "sessions"
+    REPORTS = "reports"
 
 
 # Helper functions for Firestore operations

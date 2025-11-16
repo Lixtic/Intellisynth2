@@ -102,3 +102,21 @@ def get_activity_logger():
     else:
         from app.services.activity_logger import activity_logger
         return activity_logger
+
+
+def get_report_service():
+    """
+    Get the report service for storing generated reports
+    
+    Returns:
+        ReportServiceFirestore - Always uses Firebase for report storage
+    """
+    # Reports are always stored in Firebase for persistence and history
+    from app.services.report_service_firestore import report_service_firestore
+    from app.firebase_config import firebase_config
+    
+    # Ensure Firebase is initialized
+    if not firebase_config.is_initialized():
+        firebase_config.initialize()
+    
+    return report_service_firestore
