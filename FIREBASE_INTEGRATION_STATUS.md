@@ -68,6 +68,20 @@
 
 ---
 
+### 3. Compliance Rules Synced to Firestore
+**Status**: ✅ Complete
+
+**What was done:**
+- Added `app/services/compliance_rule_service_firestore.py` to mirror rule documents into Firestore
+- Updated FastAPI compliance rule endpoints to upsert/toggle Firestore copies automatically
+- Ensured rule listings continuously sync the latest SQL state to the `compliance_rules` collection
+
+**Result:**
+- Compliance UI continues using the SQL source of truth while every create/update/toggle also persists to Firebase
+- Firestore now contains the complete rule catalog for integrations, analytics, or future UI migrations
+
+---
+
 ## 📋 Next Steps to Complete Firebase Integration
 
 ### 3. Migrate Agent Model to Firestore
@@ -181,12 +195,13 @@ class Config:
 |------|--------|----------|
 | 1. Setup Firebase Admin SDK | ✅ Complete | 100% |
 | 2. Create Firebase service layer | ✅ Complete | 100% |
-| 3. Migrate Agent model | 🔄 In Progress | 0% |
-| 4. Migrate ActivityLog | ⏳ Pending | 0% |
-| 5. Database backend switching | ⏳ Pending | 0% |
-| 6. Database initialization | ⏳ Pending | 0% |
+| 3. Sync compliance rules to Firestore | ✅ Complete | 100% |
+| 4. Migrate Agent model | 🔄 In Progress | 0% |
+| 5. Migrate ActivityLog | ⏳ Pending | 0% |
+| 6. Database backend switching | ⏳ Pending | 0% |
+| 7. Database initialization | ⏳ Pending | 0% |
 
-**Overall Progress:** 33% (2/6 tasks complete)
+**Overall Progress:** 43% (3/7 tasks complete)
 
 ---
 
@@ -196,6 +211,7 @@ class Config:
 - ✅ Firebase Admin SDK installed and configured
 - ✅ Firestore connection ready (needs credentials)
 - ✅ Base Firestore service with full CRUD operations
+- ✅ Compliance rules automatically mirrored to Firestore via `/api/compliance/rules` endpoints
 - ✅ SQLite backend still operational (current default)
 - ✅ All existing endpoints working with SQLite
 

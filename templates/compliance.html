@@ -57,10 +57,11 @@
                 </div>
                 <div class="flex items-center space-x-4">
                     <div id="system-time" class="text-sm text-slate-400"></div>
-                    <button onclick="refreshCompliance()" 
-                            class="bg-accent-blue hover:bg-blue-600 px-3 py-1 rounded-lg text-sm transition-all"
+                    <button id="refresh-compliance-btn" onclick="refreshCompliance()" 
+                            class="bg-accent-blue hover:bg-blue-600 px-3 py-1 rounded-lg text-sm transition-all flex items-center"
                             aria-label="Refresh compliance data">
-                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        <i class="fas fa-sync-alt mr-1"></i>
+                        <span class="btn-label">Refresh</span>
                     </button>
                     <a href="/" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg text-sm transition-all">
                         <i class="fas fa-arrow-left mr-1"></i>Dashboard
@@ -250,13 +251,51 @@
                         <i class="fas fa-list-alt text-blue-400 mr-3"></i>
                         Compliance Rules
                     </h2>
-                    <div class="flex space-x-2">
+                    <div class="flex flex-wrap gap-2 justify-end">
                         <input type="text" id="rule-search" placeholder="Search rules..." 
                                class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600 w-40">
-                        <button onclick="refreshRules()" class="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded-lg text-sm transition-all"
+                        <select id="rule-status-filter" class="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm border border-slate-600">
+                            <option value="all">All Statuses</option>
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Paused</option>
+                            <option value="DISABLED">Disabled</option>
+                        </select>
+                        <button id="refresh-rules-btn" onclick="refreshRules()" class="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded-lg text-sm transition-all flex items-center"
                                 aria-label="Refresh rules list">
-                            <i class="fas fa-sync-alt"></i>
+                            <i class="fas fa-sync-alt mr-1"></i>
+                            <span class="btn-label">Refresh</span>
                         </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                    <div class="bg-slate-800/60 rounded-lg p-4 border border-slate-700/50">
+                        <p class="text-xs uppercase tracking-wide text-slate-400">Total Rules</p>
+                        <p id="rule-stat-total" class="text-2xl font-semibold text-white mt-1">--</p>
+                        <p class="text-xs text-slate-500 mt-1">Monitoring coverage across policies</p>
+                    </div>
+                    <div class="bg-slate-800/60 rounded-lg p-4 border border-slate-700/50">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-xs uppercase tracking-wide text-slate-400">Active vs Paused</p>
+                                <p class="text-2xl font-semibold text-green-300 mt-1">
+                                    <span id="rule-stat-active">--</span>
+                                    <span class="text-slate-500 text-base">active</span>
+                                </p>
+                            </div>
+                            <div class="text-sm text-slate-400 text-right">
+                                <p><span id="rule-stat-paused" class="text-yellow-300 font-semibold">--</span> paused</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-800/60 rounded-lg p-4 border border-slate-700/50">
+                        <p class="text-xs uppercase tracking-wide text-slate-400">Policy Coverage</p>
+                        <div class="flex items-baseline space-x-2 mt-1">
+                            <p id="rule-stat-coverage" class="text-2xl font-semibold text-blue-300">--%</p>
+                            <span class="text-xs text-slate-500">of required controls</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-700 rounded-full mt-3">
+                            <div id="rule-stat-coverage-bar" class="h-full bg-accent-blue rounded-full" style="width:0%"></div>
+                        </div>
                     </div>
                 </div>
                 <div id="rules-list" class="space-y-3 max-h-80 overflow-y-auto">
@@ -314,7 +353,7 @@
     <div id="add-rule-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true">
         <div class="bg-dark-card rounded-xl p-8 max-w-2xl w-full mx-4">
             <div class="flex items-center justify-between mb-6">
-                <h3 class="text-2xl font-semibold text-white">Add Compliance Rule</h3>
+                <h3 id="rule-modal-title" class="text-2xl font-semibold text-white">Add Compliance Rule</h3>
                 <button onclick="closeAddRuleModal()" class="text-slate-400 hover:text-white" aria-label="Close modal">
                     <i class="fas fa-times text-xl"></i>
                 </button>
@@ -347,8 +386,9 @@
                     <textarea id="rule-description" rows="3" class="w-full bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600" required></textarea>
                 </div>
                 <div class="flex space-x-3 pt-4">
-                    <button type="submit" class="bg-accent-green hover:bg-green-600 px-6 py-2 rounded-lg transition-all">
-                        <i class="fas fa-plus mr-2"></i>Add Rule
+                    <button type="submit" class="bg-accent-green hover:bg-green-600 px-6 py-2 rounded-lg transition-all flex items-center justify-center">
+                        <i id="rule-submit-icon" class="fas fa-plus mr-2"></i>
+                        <span id="rule-submit-label">Add Rule</span>
                     </button>
                     <button type="button" onclick="closeAddRuleModal()" class="bg-slate-600 hover:bg-slate-500 px-6 py-2 rounded-lg transition-all">
                         Cancel
@@ -428,264 +468,7 @@
 
     <!-- JavaScript -->
     <script src="/static/compliance.js"></script>
-    <script>
-        // Mock rules for demo
-        const rules = [];
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // Attach add rule form listener
-            document.getElementById('add-rule-form').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const name = document.getElementById('rule-name').value;
-                const type = document.getElementById('rule-type').value;
-                const severity = document.getElementById('rule-severity').value;
-                const description = document.getElementById('rule-description').value;
-
-                // Add to rules list (mock)
-                rules.push({ name, type, severity, description, id: 'R' + (rules.length + 1), status: 'ACTIVE', last_check: 'now', violations_count: 0 });
-                updateRulesList(rules);
-
-                // Clear form and close modal
-                e.target.reset();
-                closeAddRuleModal();
-
-                // Show success message
-                alert('Rule added successfully!');
-            });
-
-            // Attach schedule audit form listener
-            document.getElementById('schedule-audit-form').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const date = document.getElementById('audit-date').value;
-                const time = document.getElementById('audit-time').value;
-                const notes = document.getElementById('audit-notes').value;
-
-                // Mock scheduling
-                console.log(`Audit scheduled for ${date} at ${time}. Notes: ${notes}`);
-
-                // Clear form and close modal
-                e.target.reset();
-                closeScheduleAuditModal();
-
-                // Show success message
-                alert('Audit scheduled successfully!');
-            });
-
-            // Initial update
-            updateRulesList(rules);
-        });
-
-        // Functions for modals
-        function addNewRule() {
-            document.getElementById('add-rule-modal').classList.remove('hidden');
-        }
-
-        function closeAddRuleModal() {
-            document.getElementById('add-rule-modal').classList.add('hidden');
-        }
-
-        function scheduleAudit() {
-            document.getElementById('schedule-audit-modal').classList.remove('hidden');
-        }
-
-        function closeScheduleAuditModal() {
-            document.getElementById('schedule-audit-modal').classList.add('hidden');
-        }
-
-        // Update rules list UI
-        function updateRulesList(rulesToDisplay) {
-            const rulesList = document.getElementById('rules-list');
-            rulesList.innerHTML = '';
-            rulesToDisplay.forEach(rule => {
-                const ruleDiv = document.createElement('div');
-                ruleDiv.className = 'bg-slate-700 p-3 rounded-lg';
-                ruleDiv.innerHTML = `
-                    <div class="flex justify-between">
-                        <span class="font-semibold">${rule.name}</span>
-                        <span class="text-xs px-2 py-1 rounded ${getSeverityColor(rule.severity)}">${rule.severity}</span>
-                    </div>
-                    <p class="text-slate-400 text-sm mt-1">${rule.description}</p>
-                `;
-                rulesList.appendChild(ruleDiv);
-            });
-        }
-
-        function getSeverityColor(severity) {
-            switch (severity) {
-                case 'HIGH': return 'bg-red-500/20 text-red-400';
-                case 'MEDIUM': return 'bg-yellow-500/20 text-yellow-400';
-                default: return 'bg-green-500/20 text-green-400';
-            }
-        }
-
-        // Sample data structures simulating access to logs, metrics, anomalies, etc.
-        const sampleData = {
-            logs: [
-                { timestamp: '2025-08-20T10:15:30Z', agent_id: 'agent-1', action: 'analysis', message: 'Processed data batch 123', severity: 'info' },
-                { timestamp: '2025-08-20T10:20:45Z', agent_id: 'agent-2', action: 'error', message: 'Failed to connect to database', severity: 'high' },
-                { timestamp: '2025-08-20T10:25:10Z', agent_id: 'anomaly-detector', action: 'detection', message: 'Detected 3 anomalies', severity: 'medium' },
-                { timestamp: '2025-08-20T10:30:00Z', agent_id: 'agent-3', action: 'decision', message: 'Approved transaction', severity: 'info' },
-                // Add more sample logs as needed
-            ],
-            anomalies: [
-                { id: 'STAT-1724145930', type: 'statistical_outlier', metric: 'error_rate', value: 0.15, severity: 'medium', timestamp: '2025-08-20T10:25:30Z', description: 'Error rate higher than baseline' },
-                { id: 'PAT-agent1-1724145945', type: 'activity_pattern', agent_id: 'agent-1', metric: 'activity_rate_per_hour', value: 25, severity: 'low', timestamp: '2025-08-20T10:25:45Z', description: 'Low activity rate' },
-                // Add more sample anomalies
-            ],
-            metrics: {
-                cpu_usage: 45,
-                memory_usage: 68,
-                error_rate: 0.02,
-                active_agents: 11,
-                tasks_completed: 1847,
-                compliance_score: 89
-            },
-            appInfo: {
-                version: '1.0.0',
-                uptime: '99.9%',
-                api_endpoints: 18,
-                last_check: '5 min ago'
-            }
-        };
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const chatbotToggle = document.getElementById('chatbot-toggle');
-            const chatbotWindow = document.getElementById('chatbot-window');
-            const chatbotClose = document.getElementById('chatbot-close');
-            const chatSend = document.getElementById('chat-send');
-            const chatInput = document.getElementById('chat-input');
-            const chatMessages = document.getElementById('chat-messages');
-
-            chatbotToggle.addEventListener('click', () => {
-                chatbotWindow.classList.toggle('hidden');
-            });
-
-            chatbotClose.addEventListener('click', () => {
-                chatbotWindow.classList.add('hidden');
-            });
-
-            chatSend.addEventListener('click', sendMessage);
-            chatInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-
-            // Initial welcome message
-            addMessage('AI', 'Hello! I\'m the Data Analyst Assistant. Ask me about logs, anomalies, metrics, or app information.');
-
-            function sendMessage() {
-                const message = chatInput.value.trim();
-                if (!message) return;
-
-                addMessage('User', message);
-                chatInput.value = '';
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-
-                // Process the message and generate response
-                setTimeout(() => {
-                    const response = analyzeQuery(message);
-                    addMessage('AI', response);
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                }, 500); // Simulate thinking time
-            }
-
-            function addMessage(sender, content) {
-                const msgDiv = document.createElement('div');
-                msgDiv.classList.add('flex', sender === 'User' ? 'justify-end' : 'justify-start');
-                const bubbleClass = sender === 'User' ? 'bg-accent-blue text-white' : 'bg-slate-700 text-white';
-                msgDiv.innerHTML = `<div class="${bubbleClass} px-4 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap">${content}</div>`;
-                chatMessages.appendChild(msgDiv);
-            }
-
-            function analyzeQuery(query) {
-                const lowerQuery = query.toLowerCase();
-
-                // Interpret and locate specific logs
-                if (lowerQuery.includes('logs')) {
-                    if (lowerQuery.includes('error')) {
-                        const errorLogs = sampleData.logs.filter(log => log.severity === 'high' || log.action === 'error');
-                        return formatLogs(errorLogs, 'Error Logs:');
-                    } else if (lowerQuery.includes('agent')) {
-                        const agentId = extractAgentId(query);
-                        if (agentId) {
-                            const agentLogs = sampleData.logs.filter(log => log.agent_id === agentId);
-                            return formatLogs(agentLogs, `Logs for ${agentId}:`);
-                        }
-                    } else if (lowerQuery.includes('recent')) {
-                        const recentLogs = sampleData.logs.slice(-5);
-                        return formatLogs(recentLogs, 'Recent Logs:');
-                    }
-                    return formatLogs(sampleData.logs, 'All Logs:');
-                }
-
-                // Anomalies
-                if (lowerQuery.includes('anomalies') || lowerQuery.includes('anomaly')) {
-                    if (lowerQuery.includes('recent')) {
-                        const recentAnomalies = sampleData.anomalies.slice(-3);
-                        return formatAnomalies(recentAnomalies, 'Recent Anomalies:');
-                    } else if (lowerQuery.includes('critical') || lowerQuery.includes('high')) {
-                        const highSeverity = sampleData.anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
-                        return formatAnomalies(highSeverity, 'High Severity Anomalies:');
-                    }
-                    return formatAnomalies(sampleData.anomalies, 'Detected Anomalies:');
-                }
-
-                // Metrics
-                if (lowerQuery.includes('metrics') || lowerQuery.includes('usage') || lowerQuery.includes('performance')) {
-                    if (lowerQuery.includes('cpu')) {
-                        return `Current CPU Usage: ${sampleData.metrics.cpu_usage}%`;
-                    } else if (lowerQuery.includes('memory')) {
-                        return `Current Memory Usage: ${sampleData.metrics.memory_usage}%`;
-                    } else if (lowerQuery.includes('error rate')) {
-                        return `Current Error Rate: ${(sampleData.metrics.error_rate * 100).toFixed(2)}%`;
-                    } else if (lowerQuery.includes('active agents')) {
-                        return `Active Agents: ${sampleData.metrics.active_agents}`;
-                    } else if (lowerQuery.includes('tasks')) {
-                        return `Tasks Completed Today: ${sampleData.metrics.tasks_completed}`;
-                    } else if (lowerQuery.includes('compliance')) {
-                        return `Compliance Score: ${sampleData.metrics.compliance_score}%`;
-                    }
-                    return formatMetrics(sampleData.metrics);
-                }
-
-                // App information
-                if (lowerQuery.includes('app info') || lowerQuery.includes('version') || lowerQuery.includes('uptime')) {
-                    return `App Version: ${sampleData.appInfo.version}\nUptime: ${sampleData.appInfo.uptime}\nAPI Endpoints: ${sampleData.appInfo.api_endpoints}\nLast Check: ${sampleData.appInfo.last_check}`;
-                }
-
-                // Default response
-                return 'Sorry, I didn\'t understand that query. Please ask about logs, anomalies, metrics, or app information.';
-            }
-
-            function formatLogs(logs, title) {
-                if (logs.length === 0) return 'No logs found.';
-                let formatted = title + '\n\n';
-                logs.forEach(log => {
-                    formatted += `[${log.timestamp}] ${log.agent_id}: ${log.message} (Severity: ${log.severity})\n`;
-                });
-                return formatted;
-            }
-
-            function formatAnomalies(anomalies, title) {
-                if (anomalies.length === 0) return 'No anomalies found.';
-                let formatted = title + '\n\n';
-                anomalies.forEach(a => {
-                    formatted += `ID: ${a.id} | Type: ${a.type} | Severity: ${a.severity} | ${a.description}\n`;
-                });
-                return formatted;
-            }
-
-            function formatMetrics(metrics) {
-                return `System Metrics:\n- CPU: ${metrics.cpu_usage}%\n- Memory: ${metrics.memory_usage}%\n- Error Rate: ${(metrics.error_rate * 100).toFixed(2)}%\n- Active Agents: ${metrics.active_agents}\n- Tasks Today: ${metrics.tasks_completed}\n- Compliance: ${metrics.compliance_score}%`;
-            }
-
-            function extractAgentId(query) {
-                const match = query.match(/agent[\s-]?(\w+)/i);
-                return match ? `agent-${match[1]}` : null;
-            }
-        });
-    </script>
+    <script src="/static/chatbot.js"></script>
 </body>
 </html>
 ```
