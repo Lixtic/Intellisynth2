@@ -1,20 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
-from app.database import get_db
-from app.services.auth_service import AuthService
-from app.models.user import User, UserRole
+
+from app.services.auth_service import UserRole, auth_service
 
 router = APIRouter()
 security = HTTPBearer()
 
-# Pydantic models
+
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 class UserCreateRequest(BaseModel):
     username: str
@@ -24,11 +22,13 @@ class UserCreateRequest(BaseModel):
     full_name: Optional[str] = None
     department: Optional[str] = None
 
+
 class UserUpdateRequest(BaseModel):
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
     full_name: Optional[str] = None
     department: Optional[str] = None
+
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -37,52 +37,46 @@ class TokenResponse(BaseModel):
     expires_in: int
     user: Dict[str, Any]
 
-# Dependency to get current user
-def get_current_user(
+
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-) -> User:
-    """Get current authenticated user"""
-    auth_service = AuthService(db)
-    user = auth_service.get_current_user(credentials.credentials)
-    
+) -> Dict[str, Any]:
+    user = await auth_service.get_current_user(credentials.credentials)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     return user
 
-# Dependency to check admin role
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Require admin role"""
-    if current_user.role != UserRole.ADMIN:
+
+async def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") != UserRole.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+            detail="Admin access required",
         )
     return current_user
 
 # Authentication endpoints
 @router.post("/login", response_model=TokenResponse)
-def login(
+async def login(
     login_data: LoginRequest,
     response: Response,
-    db: Session = Depends(get_db)
 ):
     """User login"""
-    auth_service = AuthService(db)
-    user = auth_service.authenticate_user(login_data.username, login_data.password)
-    
+    user = await auth_service.authenticate_user(login_data.username, login_data.password)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
-    
-    tokens = auth_service.create_access_token(user)
+
+    tokens = await auth_service.create_session(user)
     
     # Set refresh token as HTTP-only cookie
     response.set_cookie(
@@ -97,9 +91,8 @@ def login(
     return tokens
 
 @router.post("/refresh")
-def refresh_token(
+async def refresh_token(
     refresh_token: Optional[str] = Cookie(None),
-    db: Session = Depends(get_db)
 ):
     """Refresh access token"""
     if not refresh_token:
@@ -108,8 +101,7 @@ def refresh_token(
             detail="Refresh token not provided"
         )
     
-    auth_service = AuthService(db)
-    tokens = auth_service.refresh_access_token(refresh_token)
+    tokens = await auth_service.refresh_access_token(refresh_token)
     
     if not tokens:
         raise HTTPException(
@@ -126,106 +118,87 @@ def logout(response: Response):
     return {"message": "Successfully logged out"}
 
 @router.get("/me")
-def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user information"""
     return current_user.to_dict()
 
 @router.get("/dashboard-config")
-def get_dashboard_config(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+async def get_dashboard_config(
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Get user's dashboard configuration"""
-    auth_service = AuthService(db)
-    return auth_service.get_user_dashboard_config(current_user)
+    return await auth_service.get_user_dashboard_config(current_user)
 
 # User management endpoints (admin only)
 @router.post("/users", response_model=Dict[str, Any])
-def create_user(
+async def create_user(
     user_data: UserCreateRequest,
-    admin_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    admin_user: Dict[str, Any] = Depends(require_admin),
 ):
     """Create new user (admin only)"""
-    auth_service = AuthService(db)
-    
     try:
-        user = auth_service.create_user(
+        user = await auth_service.create_user(
             username=user_data.username,
             email=user_data.email,
             password=user_data.password,
             role=user_data.role,
             full_name=user_data.full_name,
-            department=user_data.department
+            department=user_data.department,
         )
-        return {"message": "User created successfully", "user": user.to_dict()}
-    
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+        return {"message": "User created successfully", "user": user}
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
         raise HTTPException(status_code=500, detail="User creation failed")
 
 @router.get("/users")
-def get_users(
-    admin_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+async def get_users(
+    admin_user: Dict[str, Any] = Depends(require_admin),
 ):
     """Get all users (admin only)"""
-    users = db.query(User).all()
-    return [user.to_dict() for user in users]
+    return await auth_service.list_users()
 
 @router.put("/users/{user_id}")
-def update_user(
-    user_id: int,
+async def update_user(
+    user_id: str,
     user_data: UserUpdateRequest,
-    admin_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    admin_user: Dict[str, Any] = Depends(require_admin),
 ):
     """Update user (admin only)"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    updated = await auth_service.update_user(
+        user_id,
+        role=user_data.role,
+        is_active=user_data.is_active,
+        full_name=user_data.full_name,
+        department=user_data.department,
+    )
+
+    if not updated:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Update fields
-    if user_data.role is not None:
-        user.role = user_data.role
-    if user_data.is_active is not None:
-        user.is_active = user_data.is_active
-    if user_data.full_name is not None:
-        user.full_name = user_data.full_name
-    if user_data.department is not None:
-        user.department = user_data.department
-    
-    db.commit()
-    
-    return {"message": "User updated successfully", "user": user.to_dict()}
+
+    return {"message": "User updated successfully", "user": updated}
 
 @router.delete("/users/{user_id}")
-def delete_user(
-    user_id: int,
-    admin_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+async def delete_user(
+    user_id: str,
+    admin_user: Dict[str, Any] = Depends(require_admin),
 ):
     """Deactivate user (admin only)"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    target = await auth_service.update_user(user_id)
+    if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Don't allow deleting the last admin
-    if user.role == UserRole.ADMIN:
-        admin_count = db.query(User).filter(
-            User.role == UserRole.ADMIN, 
-            User.is_active == True
-        ).count()
-        if admin_count <= 1:
-            raise HTTPException(
-                status_code=400, 
-                detail="Cannot deactivate the last admin user"
-            )
-    
-    user.is_active = False
-    db.commit()
-    
+
+    if target.get("role") == UserRole.ADMIN.value:
+        users = await auth_service.list_users()
+        active_admins = [u for u in users if u.get("role") == UserRole.ADMIN.value and u.get("is_active", True)]
+        if len(active_admins) <= 1:
+            raise HTTPException(status_code=400, detail="Cannot deactivate the last admin user")
+
+    success = await auth_service.deactivate_user(user_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to deactivate user")
+
     return {"message": "User deactivated successfully"}
 
 # Role management
@@ -237,7 +210,7 @@ def get_roles():
             {
                 "name": role.value,
                 "display_name": role.value.title(),
-                "description": ROLE_DESCRIPTIONS.get(role, "")
+                "description": ROLE_DESCRIPTIONS.get(role, ""),
             }
             for role in UserRole
         ]

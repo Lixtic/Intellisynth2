@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, Query, Depends
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -8,12 +8,8 @@ from pydantic import BaseModel, Field
 import logging
 import random
 import hashlib
+import uuid
 
-# Import database
-from sqlalchemy.orm import Session
-
-from app.database import SessionLocal
-from app.models.activity_log import ActivityLog
 from app.models.compliance_rule import (
     ComplianceRule,
     RuleStatus,
@@ -21,20 +17,16 @@ from app.models.compliance_rule import (
     SeverityLevel,
 )
 
-# Import activity logger service
-from app.services.activity_logger import activity_logger
+# Service imports
+from app.api.auth_routes_full import router as auth_router
+from app.config import get_activity_logger, get_agent_service
 from app.services.compliance_rule_service_firestore import (
     compliance_rule_firestore_service,
 )
 
-# Database dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
+# Firebase-backed services
+activity_logger = get_activity_logger()
+agent_service = get_agent_service()
 
 def _safe_enum_value(enum_cls: Type, value, default):
     """Safely convert raw values into Enum members."""
@@ -72,99 +64,222 @@ def _format_relative_time(timestamp: Optional[datetime]) -> str:
     return f"{days}d ago"
 
 
-def _serialize_compliance_rule(rule: ComplianceRule) -> Dict[str, Any]:
+DEFAULT_COMPLIANCE_RULES: List[Dict[str, Any]] = [
+    {
+        "id": "CR_DATA_RETENTION",
+        "name": "Data Retention Policy",
+        "description": "Ensure data is not retained longer than required retention periods",
+        "rule_type": RuleType.DATA_RETENTION.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "GDPR",
+        "regulation_reference": "Article 5(1)(e)",
+        "conditions": {
+            "max_retention_days": 90,
+            "data_types": ["logs", "activities", "audit_records"],
+        },
+        "priority": 10,
+    },
+    {
+        "id": "CR_ACCESS_CONTROL",
+        "name": "API Access Control",
+        "description": "All API access must be properly authenticated and authorized",
+        "rule_type": RuleType.ACCESS_CONTROL.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "SOX",
+        "regulation_reference": "Section 404",
+        "conditions": {
+            "require_authentication": True,
+            "require_authorization": True,
+            "allowed_roles": ["admin", "operator", "viewer"],
+        },
+        "priority": 20,
+    },
+    {
+        "id": "CR_AUDIT_LOGGING",
+        "name": "Audit Log Completeness",
+        "description": "All critical actions must be properly logged with required fields",
+        "rule_type": RuleType.AUDIT_LOGGING.value,
+        "severity": SeverityLevel.MEDIUM.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "PCI-DSS",
+        "regulation_reference": "Requirement 10",
+        "conditions": {
+            "required_fields": ["timestamp", "user_id", "action", "resource", "outcome"],
+        },
+        "priority": 30,
+    },
+    {
+        "id": "CR_ENCRYPTION",
+        "name": "Data Encryption at Rest",
+        "description": "Sensitive data must be encrypted when stored",
+        "rule_type": RuleType.ENCRYPTION.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "HIPAA",
+        "regulation_reference": "164.312(a)(2)(iv)",
+        "conditions": {
+            "encryption_algorithm": "AES-256",
+            "key_rotation_days": 365,
+        },
+        "priority": 40,
+    },
+    {
+        "id": "CR_SECURITY_MONITORING",
+        "name": "Security Event Monitoring",
+        "description": "Monitor and alert on security-related events and anomalies",
+        "rule_type": RuleType.MONITORING.value,
+        "severity": SeverityLevel.CRITICAL.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "NIST",
+        "regulation_reference": "DE.AE-1",
+        "conditions": {
+            "monitor_events": ["failed_login", "privilege_escalation", "data_exfiltration"],
+            "alert_threshold": 5,
+        },
+        "priority": 50,
+    },
+]
+
+
+def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _enum_value(enum_cls: Type, raw: Any, fallback: str) -> str:
+    if raw is None:
+        return fallback
+    if isinstance(raw, enum_cls):
+        return raw.value
+    try:
+        return enum_cls(raw).value
+    except (ValueError, TypeError):
+        try:
+            return enum_cls[str(raw).upper()].value
+        except KeyError:
+            return fallback
+
+
+def _build_default_rule_payloads() -> List[Dict[str, Any]]:
+    now = datetime.utcnow().isoformat()
+    payloads: List[Dict[str, Any]] = []
+    for template in DEFAULT_COMPLIANCE_RULES:
+        rule = dict(template)
+        rule.setdefault("id", f"CR_{uuid.uuid4().hex[:8].upper()}")
+        rule.setdefault("rule_type", RuleType.CUSTOM.value)
+        rule.setdefault("severity", SeverityLevel.MEDIUM.value)
+        rule.setdefault("status", RuleStatus.ACTIVE.value)
+        rule.setdefault("conditions", {})
+        rule.setdefault("parameters", {})
+        rule.setdefault("violations_count", 0)
+        rule.setdefault("is_automated", True)
+        rule.setdefault("priority", 100)
+        rule.setdefault("created_by", "system")
+        rule.setdefault("updated_by", "system")
+        rule.setdefault("last_check_date", now)
+        rule.setdefault("created_at", now)
+        rule.setdefault("updated_at", now)
+        payloads.append(rule)
+    return payloads
+
+
+async def _fetch_compliance_rules() -> List[Dict[str, Any]]:
+    rules = await compliance_rule_firestore_service.get_all(order_by="priority")
+    if rules:
+        return rules
+
+    defaults = _build_default_rule_payloads()
+    for rule in defaults:
+        await compliance_rule_firestore_service.create(rule["id"], rule)
+    return defaults
+
+
+def _format_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
+    last_check_dt = _parse_iso_timestamp(rule.get("last_check_date"))
     return {
-        "id": rule.id,
-        "name": rule.name,
-        "type": rule.rule_type.value if rule.rule_type else None,
-        "rule_type": rule.rule_type.value if rule.rule_type else None,
-        "severity": rule.severity.value if rule.severity else None,
-        "status": rule.status.value if rule.status else None,
-        "description": rule.description,
-        "last_check": _format_relative_time(rule.last_check_date),
-        "last_check_date": rule.last_check_date.isoformat() if rule.last_check_date else None,
-        "violations_count": rule.violations_count or 0,
-        "framework": rule.framework,
-        "regulation_reference": rule.regulation_reference,
-        "is_automated": rule.is_automated,
-        "priority": rule.priority,
-        "conditions": rule.conditions or {},
-        "parameters": rule.parameters or {},
+        "id": rule.get("id"),
+        "name": rule.get("name"),
+        "type": rule.get("rule_type"),
+        "rule_type": rule.get("rule_type"),
+        "severity": rule.get("severity"),
+        "status": rule.get("status"),
+        "description": rule.get("description"),
+        "last_check": _format_relative_time(last_check_dt),
+        "last_check_date": rule.get("last_check_date"),
+        "violations_count": rule.get("violations_count", 0),
+        "framework": rule.get("framework"),
+        "regulation_reference": rule.get("regulation_reference"),
+        "is_automated": rule.get("is_automated", True),
+        "priority": rule.get("priority", 100),
+        "conditions": rule.get("conditions", {}),
+        "parameters": rule.get("parameters", {}),
     }
 
 
-def _get_or_seed_compliance_rules(db: Session) -> List[ComplianceRule]:
-    has_rules = db.query(ComplianceRule.id).first()
-    if not has_rules:
-        defaults = ComplianceRule.create_default_rules()
-        now = datetime.utcnow()
-        for index, rule in enumerate(defaults, start=1):
-            rule.last_check_date = now - timedelta(minutes=index * 5)
-            rule.created_by = rule.created_by or "system"
-            rule.updated_by = rule.updated_by or "system"
-            if not rule.priority:
-                rule.priority = index * 10
-            db.add(rule)
-        db.commit()
-    return (
-        db.query(ComplianceRule)
-        .order_by(ComplianceRule.priority.asc(), ComplianceRule.name.asc())
-        .all()
+def _normalize_rule_payload(rule_data: Dict[str, Any], existing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    now = datetime.utcnow().isoformat()
+    payload = dict(existing or {})
+    payload["id"] = payload.get("id") or rule_data.get("id") or f"CR_{uuid.uuid4().hex[:8].upper()}"
+    payload["name"] = rule_data.get("name") or payload.get("name") or "New Rule"
+    payload["description"] = rule_data.get("description") or payload.get("description") or ""
+    payload["rule_type"] = _enum_value(
+        RuleType,
+        rule_data.get("type") or rule_data.get("rule_type") or payload.get("rule_type"),
+        payload.get("rule_type") or RuleType.CUSTOM.value,
     )
+    payload["severity"] = _enum_value(
+        SeverityLevel,
+        rule_data.get("severity") or payload.get("severity"),
+        payload.get("severity") or SeverityLevel.MEDIUM.value,
+    )
+    payload["status"] = _enum_value(
+        RuleStatus,
+        rule_data.get("status") or payload.get("status"),
+        payload.get("status") or RuleStatus.ACTIVE.value,
+    )
+    payload["conditions"] = rule_data.get("conditions", payload.get("conditions", {}))
+    payload["parameters"] = rule_data.get("parameters", payload.get("parameters", {}))
+    payload["framework"] = rule_data.get("framework", payload.get("framework"))
+    payload["regulation_reference"] = rule_data.get("regulation_reference", payload.get("regulation_reference"))
+    payload["is_automated"] = bool(rule_data.get("is_automated", payload.get("is_automated", True)))
+
+    priority_value = rule_data.get("priority", payload.get("priority", 100))
+    try:
+        payload["priority"] = int(priority_value)
+    except (TypeError, ValueError):
+        payload["priority"] = payload.get("priority", 100)
+
+    payload["violations_count"] = rule_data.get("violations_count", payload.get("violations_count", 0))
+    payload["last_check_date"] = rule_data.get("last_check_date", payload.get("last_check_date", now))
+    payload["updated_at"] = now
+    payload["updated_by"] = rule_data.get("updated_by", "compliance_ui")
+
+    if not existing:
+        payload.setdefault("created_at", now)
+        payload.setdefault("created_by", rule_data.get("created_by", "compliance_ui"))
+
+    return payload
 
 
-async def _build_compliance_rules_response(db: Session) -> Dict[str, Any]:
-    rules = _get_or_seed_compliance_rules(db)
-    active_count = sum(1 for rule in rules if rule.status == RuleStatus.ACTIVE)
-    coverage = round((active_count / len(rules)) * 100, 1) if rules else 0.0
-    response = {
-        "rules": [_serialize_compliance_rule(rule) for rule in rules],
-        "total_count": len(rules),
+async def _build_compliance_rules_response() -> Dict[str, Any]:
+    rules = await _fetch_compliance_rules()
+    formatted = [_format_rule(rule) for rule in rules]
+    active_count = sum(1 for rule in formatted if rule["status"] == RuleStatus.ACTIVE.value)
+    coverage = round((active_count / len(formatted)) * 100, 1) if formatted else 0.0
+
+    return {
+        "rules": formatted,
+        "total_count": len(formatted),
         "active_count": active_count,
         "coverage_percentage": coverage,
         "timestamp": datetime.utcnow().isoformat(),
     }
-
-    try:
-        await compliance_rule_firestore_service.sync_rules(response["rules"])
-    except Exception as sync_error:  # pragma: no cover - defensive logging
-        logger.warning("Unable to sync compliance rules to Firestore: %s", sync_error)
-
-    return response
-
-
-def _apply_rule_updates(rule: ComplianceRule, payload: Dict[str, Any]) -> None:
-    if "name" in payload:
-        rule.name = payload["name"] or rule.name
-    if "description" in payload:
-        rule.description = payload["description"] or rule.description
-    if "type" in payload or "rule_type" in payload:
-        rule.rule_type = _safe_enum_value(
-            RuleType,
-            payload.get("type") or payload.get("rule_type"),
-            rule.rule_type or RuleType.CUSTOM,
-        )
-    if "severity" in payload:
-        rule.severity = _safe_enum_value(SeverityLevel, payload["severity"], rule.severity)
-    if "status" in payload:
-        rule.status = _safe_enum_value(RuleStatus, payload["status"], rule.status)
-    if "conditions" in payload:
-        rule.conditions = payload["conditions"]
-    if "parameters" in payload:
-        rule.parameters = payload["parameters"]
-    if "framework" in payload:
-        rule.framework = payload["framework"]
-    if "regulation_reference" in payload:
-        rule.regulation_reference = payload["regulation_reference"]
-    if "is_automated" in payload:
-        rule.is_automated = bool(payload["is_automated"])
-    if "priority" in payload:
-        try:
-            rule.priority = int(payload["priority"])
-        except (TypeError, ValueError):
-            pass
-    rule.updated_at = datetime.utcnow()
-    rule.updated_by = payload.get("updated_by", "compliance_ui")
 
 # Pydantic models for activity logging
 class ActivityLogCreate(BaseModel):
@@ -534,6 +649,9 @@ app = FastAPI(
     },
     openapi_tags=tags_metadata,
 )
+
+# Replace legacy demo auth endpoints with the dedicated router
+app.include_router(auth_router, prefix="/api/auth", tags=["🔐 Authentication"])
 
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1107,112 +1225,76 @@ async def get_compliance_violations():
 @app.get("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
          summary="Compliance Rules",
          description="Get all compliance rules with their status and violation counts")
-async def get_compliance_rules(db: Session = Depends(get_db)):
+async def get_compliance_rules():
     """Get compliance rules for management interface"""
-    return await _build_compliance_rules_response(db)
+    return await _build_compliance_rules_response()
+
 
 @app.get("/api/rules", tags=["🔍 Audit & Compliance"],
          summary="Rules List",
          description="Get compliance rules list (compatibility endpoint)")
-async def get_rules(db: Session = Depends(get_db)):
-    """Get compliance rules - compatibility endpoint for frontend"""
-    return await _build_compliance_rules_response(db)
+async def get_rules():
+    """Compatibility endpoint for legacy UI components"""
+    return await _build_compliance_rules_response()
+
 
 @app.post("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
           summary="Add Compliance Rule",
           description="Create a new compliance rule for monitoring")
-async def create_compliance_rule(rule_data: dict, db: Session = Depends(get_db)):
-    """Create a new compliance rule"""
-    rule_type_value = rule_data.get("type") or rule_data.get("rule_type") or RuleType.CUSTOM.value
-    severity_value = rule_data.get("severity") or SeverityLevel.MEDIUM.value
-    status_value = rule_data.get("status") or RuleStatus.ACTIVE.value
-
-    priority_value = rule_data.get("priority")
-    try:
-        priority_value = int(priority_value)
-    except (TypeError, ValueError):
-        priority_value = 100
-
-    new_rule = ComplianceRule(
-        name=rule_data.get("name", "New Rule"),
-        description=rule_data.get("description", ""),
-        rule_type=_safe_enum_value(RuleType, rule_type_value, RuleType.CUSTOM),
-        severity=_safe_enum_value(SeverityLevel, severity_value, SeverityLevel.MEDIUM),
-        status=_safe_enum_value(RuleStatus, status_value, RuleStatus.ACTIVE),
-        conditions=rule_data.get("conditions"),
-        parameters=rule_data.get("parameters"),
-        framework=rule_data.get("framework"),
-        regulation_reference=rule_data.get("regulation_reference"),
-        is_automated=rule_data.get("is_automated", True),
-        priority=priority_value,
-        created_by=rule_data.get("created_by", "compliance_ui"),
-        updated_by=rule_data.get("updated_by", "compliance_ui"),
-    )
-    new_rule.last_check_date = datetime.utcnow()
-    db.add(new_rule)
-    db.commit()
-    db.refresh(new_rule)
-
-    serialized_rule = _serialize_compliance_rule(new_rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover - defensive logging
-        logger.warning("Unable to sync new compliance rule to Firestore: %s", sync_error)
-    
+async def create_compliance_rule(rule_data: dict):
+    payload = _normalize_rule_payload(rule_data)
+    created = await compliance_rule_firestore_service.create(payload["id"], payload)
+    formatted = _format_rule(created)
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{new_rule.name}' created successfully"
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' created successfully",
     }
 
 
 @app.put("/api/compliance/rules/{rule_id}", tags=["🔍 Audit & Compliance"],
          summary="Update Compliance Rule",
          description="Modify an existing compliance rule configuration")
-async def update_compliance_rule(rule_id: str, rule_data: dict, db: Session = Depends(get_db)):
-    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
-    if not rule:
+async def update_compliance_rule(rule_id: str, rule_data: dict):
+    existing = await compliance_rule_firestore_service.get(rule_id)
+    if not existing:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
-    _apply_rule_updates(rule, rule_data)
-    db.commit()
-    db.refresh(rule)
-    serialized_rule = _serialize_compliance_rule(rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover
-        logger.warning("Unable to sync updated compliance rule to Firestore: %s", sync_error)
+
+    payload = _normalize_rule_payload(rule_data, existing)
+    updated = await compliance_rule_firestore_service.update(rule_id, payload)
+    formatted = _format_rule(updated or payload)
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{rule.name}' updated successfully"
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' updated successfully",
     }
 
 
 @app.put("/api/compliance/rules/{rule_id}/toggle", tags=["🔍 Audit & Compliance"],
          summary="Toggle Compliance Rule",
          description="Pause or resume a compliance rule by toggling its status")
-async def toggle_compliance_rule(rule_id: str, db: Session = Depends(get_db)):
-    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
+async def toggle_compliance_rule(rule_id: str):
+    rule = await compliance_rule_firestore_service.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
-    if rule.status == RuleStatus.ACTIVE:
-        rule.status = RuleStatus.INACTIVE
-    else:
-        rule.status = RuleStatus.ACTIVE
-    rule.updated_at = datetime.utcnow()
-    rule.updated_by = "compliance_ui"
-    db.commit()
-    db.refresh(rule)
-    action = "paused" if rule.status == RuleStatus.INACTIVE else "resumed"
-    serialized_rule = _serialize_compliance_rule(rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover
-        logger.warning("Unable to sync toggled compliance rule to Firestore: %s", sync_error)
+
+    next_status = (
+        RuleStatus.INACTIVE.value if rule.get("status") == RuleStatus.ACTIVE.value else RuleStatus.ACTIVE.value
+    )
+    updated = await compliance_rule_firestore_service.update(
+        rule_id,
+        {
+            "status": next_status,
+            "updated_at": datetime.utcnow().isoformat(),
+            "updated_by": "compliance_ui",
+        },
+    )
+    formatted = _format_rule(updated or rule)
+    action = "paused" if next_status == RuleStatus.INACTIVE.value else "resumed"
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{rule.name}' {action}",
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' {action}",
     }
 
 @app.put("/api/compliance/violations/{violation_id}/resolve", tags=["🔍 Audit & Compliance"],
@@ -1544,105 +1626,86 @@ async def generate_report(report_type: str, time_period: str = "24h"):
     - anomaly_detection: Detected anomalies and patterns
     """
     try:
-        db = next(get_db())
-        
-        # Parse time period
-        hours = 24
-        if time_period == "1h":
-            hours = 1
-        elif time_period == "7d":
-            hours = 168
-        elif time_period == "30d":
-            hours = 720
-        
+        period_map = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}
+        hours = period_map.get(time_period, 24)
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-        
-        # Generate report based on type
+
+        activities = await activity_logger.get_activities(limit=5000, since=cutoff_time)
+        agents = await agent_service.get_all_agents(limit=500)
+
+        def _safe_lower(value: Any) -> str:
+            return str(value or "").lower()
+
         if report_type == "agent_activity":
-            # Get all agent activities
-            activities = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time
-            ).all()
-            
-            # Get unique agents
-            from app.models.agent import Agent
-            all_agents = db.query(Agent).all()
-            active_agents = [a for a in all_agents if a.status == 'active']
-            
-            # Count activities by type and agent
-            by_type = {}
-            by_agent = {}
+            by_type: Dict[str, int] = {}
+            by_agent: Dict[str, int] = {}
             for activity in activities:
-                action_type = activity.action_type
+                action_type = activity.get("action_type", "unknown")
                 by_type[action_type] = by_type.get(action_type, 0) + 1
-                
-                agent_id = activity.agent_id
+
+                agent_id = activity.get("agent_id", "unknown")
                 by_agent[agent_id] = by_agent.get(agent_id, 0) + 1
-            
-            # Calculate success rate
-            successful = sum(1 for a in activities if a.action_type != 'error')
-            success_rate = f"{(successful / len(activities) * 100):.1f}%" if activities else "0%"
-            
+
+            successful = sum(1 for a in activities if a.get("action_type") != "error")
+            total = len(activities)
+            success_rate = f"{(successful / total * 100):.1f}%" if total else "0%"
+
+            active_agents = [a for a in agents if _safe_lower(a.get("status")) == "active"]
+
             report_data = {
-                "total_activities": len(activities),
+                "total_activities": total,
                 "by_type": by_type,
                 "by_agent": by_agent,
                 "agent_stats": {
-                    "total_agents": len(all_agents),
+                    "total_agents": len(agents),
                     "active_agents": len(active_agents),
-                    "idle_agents": len(all_agents) - len(active_agents),
-                    "offline_agents": 0
+                    "idle_agents": len(agents) - len(active_agents),
+                    "offline_agents": 0,
                 },
                 "activity_metrics": {
-                    "total_tasks": len(activities),
+                    "total_tasks": total,
                     "completed_tasks": successful,
-                    "failed_tasks": len(activities) - successful,
-                    "success_rate": success_rate
+                    "failed_tasks": total - successful,
+                    "success_rate": success_rate,
                 },
                 "top_performing_agents": [
                     {"id": agent_id, "name": agent_id, "tasks_completed": count}
-                    for agent_id, count in sorted(by_agent.items(), key=lambda x: x[1], reverse=True)[:5]
-                ]
+                    for agent_id, count in sorted(by_agent.items(), key=lambda item: item[1], reverse=True)[:5]
+                ],
             }
-        
+
         elif report_type == "security_summary":
-            # Get security-related activities
-            security_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.action_type.in_(['security_scan', 'error'])
-            ).all()
-            
-            threats = sum(1 for log in security_logs if log.action_type == 'security_scan')
-            errors = sum(1 for log in security_logs if log.action_type == 'error')
-            
+            security_logs = [
+                entry
+                for entry in activities
+                if entry.get("action_type") in {"security_scan", "error"}
+            ]
+            threats = sum(1 for log in security_logs if log.get("action_type") == "security_scan")
+            errors = sum(1 for log in security_logs if log.get("action_type") == "error")
             report_data = {
                 "total_security_events": len(security_logs),
                 "threats_detected": threats,
                 "errors": errors,
                 "security_events": {
                     "total_events": len(security_logs),
-                    "critical_events": sum(1 for log in security_logs if log.severity == 'critical'),
-                    "high_priority": sum(1 for log in security_logs if log.severity == 'high'),
-                    "medium_priority": sum(1 for log in security_logs if log.severity == 'medium')
+                    "critical_events": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "high_priority": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "high"),
+                    "medium_priority": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "medium"),
                 },
                 "threat_analysis": {
                     "active_threats": threats,
-                    "blocked_attempts": 0,
+                    "blocked_attempts": max(threats - errors, 0),
                     "vulnerabilities_found": threats,
-                    "remediation_pending": 0
-                }
+                    "remediation_pending": max(errors - threats, 0),
+                },
             }
-        
+
         elif report_type == "compliance_check":
-            # Get compliance-related activities
-            compliance_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.action_type == 'compliance_check'
-            ).all()
-            
-            compliant = sum(1 for log in compliance_logs if log.data and 'compliant' in str(log.data).lower())
-            violations = sum(1 for log in compliance_logs if log.data and 'violation' in str(log.data).lower())
-            
+            compliance_logs = [
+                entry for entry in activities if entry.get("action_type") == "compliance_check"
+            ]
+            compliant = sum(1 for log in compliance_logs if "compliant" in _safe_lower(log.get("data")))
+            violations = sum(1 for log in compliance_logs if "violation" in _safe_lower(log.get("data")))
             report_data = {
                 "total_checks": len(compliance_logs),
                 "compliant": compliant,
@@ -1651,104 +1714,100 @@ async def generate_report(report_type: str, time_period: str = "24h"):
                     "total_rules_checked": len(compliance_logs),
                     "rules_passed": compliant,
                     "rules_failed": violations,
-                    "compliance_score": f"{(compliant / len(compliance_logs) * 100):.1f}%" if compliance_logs else "N/A"
+                    "compliance_score": f"{(compliant / len(compliance_logs) * 100):.1f}%" if compliance_logs else "N/A",
                 },
                 "violation_summary": {
-                    "critical_violations": sum(1 for log in compliance_logs if log.severity == 'critical'),
-                    "major_violations": sum(1 for log in compliance_logs if log.severity == 'high'),
-                    "minor_violations": sum(1 for log in compliance_logs if log.severity == 'medium'),
-                    "resolved_violations": 0
-                }
+                    "critical_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "major_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "high"),
+                    "minor_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "medium"),
+                    "resolved_violations": 0,
+                },
             }
-        
+
         elif report_type == "performance_metrics":
-            # Get performance data
-            all_activities = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time
-            ).all()
-            
-            successful = sum(1 for log in all_activities if log.action_type != 'error')
-            success_rate = (successful / len(all_activities) * 100) if all_activities else 0
-            
+            successful = sum(1 for log in activities if log.get("action_type") != "error")
+            total = len(activities)
+            success_rate = (successful / total * 100) if total else 0
+            exec_times = [
+                log.get("data", {}).get("execution_time")
+                for log in activities
+                if isinstance(log.get("data"), dict) and log.get("data", {}).get("execution_time")
+            ]
+            avg_exec = int(sum(exec_times) / len(exec_times)) if exec_times else 0
             report_data = {
-                "total_operations": len(all_activities),
-                "average_execution_time_ms": 100,  # Placeholder
+                "total_operations": total,
+                "average_execution_time_ms": avg_exec,
                 "success_rate": f"{success_rate:.1f}%",
                 "performance_summary": {
-                    "total_requests": len(all_activities),
+                    "total_requests": total,
                     "successful_requests": successful,
-                    "failed_requests": len(all_activities) - successful,
-                    "average_response_time": "100ms"
+                    "failed_requests": total - successful,
+                    "average_response_time": f"{avg_exec}ms",
                 },
                 "throughput_metrics": {
-                    "requests_per_hour": len(all_activities) // max(hours, 1),
-                    "peak_hour_requests": len(all_activities),
-                    "average_concurrent_users": 1,
-                    "max_concurrent_users": 1
-                }
+                    "requests_per_hour": total // max(hours, 1),
+                    "peak_hour_requests": total,
+                    "average_concurrent_users": max(len(agents), 1),
+                    "max_concurrent_users": max(len(agents), 1),
+                },
             }
-        
+
         elif report_type == "anomaly_detection":
-            # Get anomaly data
-            anomaly_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.severity.in_(['warning', 'critical'])
-            ).all()
-            
+            anomaly_logs = [
+                log
+                for log in activities
+                if _safe_lower(log.get("severity")) in {"warning", "critical"}
+            ]
             report_data = {
                 "anomalies_detected": len(anomaly_logs),
                 "by_severity": {
-                    "warning": sum(1 for log in anomaly_logs if log.severity == 'warning'),
-                    "critical": sum(1 for log in anomaly_logs if log.severity == 'critical')
+                    "warning": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "warning"),
+                    "critical": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "critical"),
                 },
                 "anomaly_summary": {
                     "total_anomalies": len(anomaly_logs),
-                    "critical_anomalies": sum(1 for log in anomaly_logs if log.severity == 'critical'),
-                    "warning_anomalies": sum(1 for log in anomaly_logs if log.severity == 'warning'),
-                    "resolved_anomalies": 0
+                    "critical_anomalies": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "warning_anomalies": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "warning"),
+                    "resolved_anomalies": 0,
                 },
                 "anomaly_types": {
-                    "behavioral_anomalies": sum(1 for log in anomaly_logs if log.data and 'behavior' in str(log.data).lower()),
-                    "performance_anomalies": sum(1 for log in anomaly_logs if log.data and 'performance' in str(log.data).lower()),
-                    "security_anomalies": sum(1 for log in anomaly_logs if log.action_type == 'security_scan'),
-                    "data_anomalies": sum(1 for log in anomaly_logs if log.data and 'data' in str(log.data).lower())
-                }
+                    "behavioral_anomalies": sum(1 for log in anomaly_logs if "behavior" in _safe_lower(log.get("data"))),
+                    "performance_anomalies": sum(1 for log in anomaly_logs if "performance" in _safe_lower(log.get("data"))),
+                    "security_anomalies": sum(1 for log in anomaly_logs if log.get("action_type") == "security_scan"),
+                    "data_anomalies": sum(1 for log in anomaly_logs if "data" in _safe_lower(log.get("data"))),
+                },
             }
+
         else:
             report_data = {"message": "Unknown report type"}
-        
-        # Store report in Firebase
+
         from app.config import get_report_service
+
         report_service = get_report_service()
-        
         stored_report = await report_service.create_report(
             report_type=report_type,
             time_period=time_period,
             data=report_data,
-            status="completed"
+            status="completed",
         )
-        
+
         if stored_report:
-            return {
-                "status": "success",
-                "report": stored_report
-            }
-        else:
-            # Fallback to in-memory report if Firebase storage fails
-            report_id = f"report-{int(datetime.utcnow().timestamp())}"
-            return {
-                "status": "success",
-                "report": {
-                    "id": report_id,
-                    "type": report_type,
-                    "time_period": time_period,
-                    "generated_at": datetime.utcnow().isoformat(),
-                    "data": report_data
-                }
-            }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+            return {"status": "success", "report": stored_report}
+
+        fallback_id = f"report-{int(datetime.utcnow().timestamp())}"
+        return {
+            "status": "success",
+            "report": {
+                "id": fallback_id,
+                "type": report_type,
+                "time_period": time_period,
+                "generated_at": datetime.utcnow().isoformat(),
+                "data": report_data,
+            },
+        }
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {exc}")
 
 @app.get("/api/reports/{report_id}", tags=["📊 Reports"],
          summary="Get Report Details",
