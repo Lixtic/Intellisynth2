@@ -30,6 +30,14 @@ class UserUpdateRequest(BaseModel):
     department: Optional[str] = None
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+    full_name: Optional[str] = None
+    department: Optional[str] = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -62,6 +70,28 @@ async def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)
     return current_user
 
 # Authentication endpoints
+def _set_auth_cookies(response: Response, tokens: Dict[str, Any]) -> None:
+    """Set secure cookies for access and refresh tokens."""
+
+    response.set_cookie(
+        key="access_token",
+        value=tokens["access_token"],
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=tokens.get("expires_in", 1800),
+    )
+
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=7 * 24 * 60 * 60,
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     login_data: LoginRequest,
@@ -77,17 +107,32 @@ async def login(
         )
 
     tokens = await auth_service.create_session(user)
-    
-    # Set refresh token as HTTP-only cookie
-    response.set_cookie(
-        key="refresh_token",
-        value=tokens["refresh_token"],
-        httponly=True,
-        secure=True,
-        samesite="strict",
-        max_age=7 * 24 * 60 * 60  # 7 days
-    )
-    
+
+    _set_auth_cookies(response, tokens)
+
+    return tokens
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register(user_data: RegisterRequest, response: Response):
+    """Allow new users to self-register with viewer access."""
+
+    try:
+        user = await auth_service.create_user(
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password,
+            role=UserRole.VIEWER,
+            full_name=user_data.full_name,
+            department=user_data.department,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+    tokens = await auth_service.create_session(user)
+    _set_auth_cookies(response, tokens)
     return tokens
 
 @router.post("/refresh")
@@ -114,13 +159,14 @@ async def refresh_token(
 @router.post("/logout")
 def logout(response: Response):
     """User logout"""
+    response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"message": "Successfully logged out"}
 
 @router.get("/me")
 async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user information"""
-    return current_user.to_dict()
+    return current_user
 
 @router.get("/dashboard-config")
 async def get_dashboard_config(

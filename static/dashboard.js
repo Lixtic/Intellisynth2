@@ -6,6 +6,10 @@ class AIFlightRecorderDashboard {
         this.charts = {};
         this.lastUpdated = new Date();
         this.baseUrl = window.location.origin;
+        this.currentUser = window.__USER__ || null;
+        this.dashboardConfig = window.__DASHBOARD_CONFIG__ || { widgets: [], refresh_interval: 30 };
+        this.refreshIntervalMs = (this.dashboardConfig.refresh_interval || 30) * 1000;
+        this.redirecting = false;
         
         // Initialize dashboard
         this.init();
@@ -17,6 +21,9 @@ class AIFlightRecorderDashboard {
         // Setup real-time clock
         this.startClock();
         
+        // Apply personalization before rendering
+        this.applyUserPreferences();
+
         // Initialize charts
         await this.initializeCharts();
         
@@ -68,6 +75,12 @@ class AIFlightRecorderDashboard {
             // Try to load comprehensive dashboard data first
             try {
                 const dashboardData = await this.fetchData('/api/monitoring/dashboard');
+                if (dashboardData.preferences) {
+                    this.applyUserPreferences(dashboardData.preferences);
+                }
+                if (dashboardData.user) {
+                    this.currentUser = dashboardData.user;
+                }
                 
                 // Update UI with comprehensive data
                 this.updateSystemStatus(dashboardData.system_status);
@@ -180,21 +193,29 @@ class AIFlightRecorderDashboard {
 
     async fetchData(endpoint) {
         try {
-            const response = await fetch(`${this.baseUrl}${endpoint}`);
+            const response = await fetch(`${this.baseUrl}${endpoint}`, {
+                credentials: 'include',
+            });
+            if (response.status === 401) {
+                this.handleUnauthorized();
+                throw new Error('Unauthorized');
+            }
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             return await response.json();
         } catch (error) {
+            if (error.message === 'Unauthorized') {
+                throw error;
+            }
             console.warn(`⚠️ Failed to fetch ${endpoint}:`, error.message);
-            // For compliance and violations, return empty data instead of mock data
             if (endpoint.includes('compliance') || endpoint.includes('violations')) {
                 return {
                     violations: [],
                     total_count: 0,
                     by_severity: { high: 0, medium: 0, low: 0 },
-                    resolution_rate: "100%",
-                    timestamp: new Date().toISOString()
+                    resolution_rate: '100%',
+                    timestamp: new Date().toISOString(),
                 };
             }
             return this.getMockData(endpoint);
@@ -241,6 +262,25 @@ class AIFlightRecorderDashboard {
         };
         
         return mockData[endpoint] || {};
+    }
+
+    applyUserPreferences(preferences) {
+        if (preferences) {
+            this.dashboardConfig = preferences;
+            this.refreshIntervalMs = (preferences.refresh_interval || 30) * 1000;
+        }
+
+        const preferredWidgets = new Set(this.dashboardConfig.widgets || []);
+        const widgets = document.querySelectorAll('[data-widget]');
+        widgets.forEach((element) => {
+            if (!preferredWidgets.size || preferredWidgets.has(element.dataset.widget)) {
+                element.classList.remove('opacity-40');
+            } else {
+                element.classList.add('opacity-40');
+            }
+        });
+
+        this.setRealtimeStatus(this.isRealTime ? 'Enabled' : 'Disabled');
     }
 
     updateSystemStatus(data) {
@@ -516,11 +556,11 @@ class AIFlightRecorderDashboard {
 
     startRealTimeUpdates() {
         if (this.isRealTime) {
+            this.stopRealTimeUpdates();
             this.refreshInterval = setInterval(() => {
                 this.loadDashboardData();
-            }, 30000); // Update every 30 seconds
-            
-            document.getElementById('realtime-status').textContent = 'Enabled';
+            }, this.refreshIntervalMs);
+            this.setRealtimeStatus('Enabled');
         }
     }
 
@@ -529,7 +569,7 @@ class AIFlightRecorderDashboard {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
         }
-        document.getElementById('realtime-status').textContent = 'Disabled';
+        this.setRealtimeStatus('Disabled');
     }
 
     toggleRealTime() {
@@ -553,6 +593,18 @@ class AIFlightRecorderDashboard {
             this.startRealTimeUpdates();
         } else {
             this.stopRealTimeUpdates();
+        }
+    }
+
+    setRealtimeStatus(state) {
+        const statusEl = document.getElementById('realtime-status');
+        if (!statusEl) {
+            return;
+        }
+        if (state === 'Enabled') {
+            statusEl.textContent = `${state} (${Math.round(this.refreshIntervalMs / 1000)}s)`;
+        } else {
+            statusEl.textContent = state;
         }
     }
 
@@ -630,6 +682,18 @@ class AIFlightRecorderDashboard {
                 document.body.removeChild(notification);
             }, 300);
         }, 3000);
+    }
+
+    handleUnauthorized() {
+        if (this.redirecting) {
+            return;
+        }
+        this.redirecting = true;
+        this.stopRealTimeUpdates();
+        this.showAlert('Session expired. Redirecting to sign in...', 'error');
+        setTimeout(() => {
+            window.location.href = '/login';
+        }, 1500);
     }
 }
 

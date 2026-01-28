@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In • AI Flight Recorder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+          integrity="sha512-1HCn3sI5OGucs5cjox96D65gis6pZeRAgvIJ5zsxFrqxbPjzVY4xXHzkwmo7aX6ixkmKsgNHYsYAGP82LPvf4g=="
+          crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4 py-12">
+    <div class="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <section class="bg-gradient-to-br from-blue-600/60 via-indigo-500/60 to-purple-600/60 rounded-3xl p-8 border border-white/10 shadow-2xl">
+            <div class="flex items-center space-x-3 mb-6">
+                <div class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center text-2xl">
+                    <i class="fas fa-plane-departure"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-widest text-white/70">AI Flight Recorder</p>
+                    <h1 class="text-2xl font-semibold">Mission Control Access</h1>
+                </div>
+            </div>
+            <p class="text-white/80 leading-relaxed mb-8">
+                Securely monitor every AI agent, surface compliance drifts, and automate operational playbooks from one cockpit.
+                Use an existing account or create a new secure login to access the dashboard.
+            </p>
+            <ul class="space-y-4 text-white/90">
+                <li class="flex items-start space-x-3">
+                    <span class="text-green-300"><i class="fas fa-lock"></i></span>
+                    <div>
+                        <p class="font-semibold">Zero-trust perimeter</p>
+                        <p class="text-sm text-white/70">Role-based permissions with expiring JWT sessions.</p>
+                    </div>
+                </li>
+                <li class="flex items-start space-x-3">
+                    <span class="text-blue-300"><i class="fas fa-robot"></i></span>
+                    <div>
+                        <p class="font-semibold">Real-time telemetry</p>
+                        <p class="text-sm text-white/70">Live flight data, agent vitals, and anomaly snapshots.</p>
+                    </div>
+                </li>
+                <li class="flex items-start space-x-3">
+                    <span class="text-yellow-300"><i class="fas fa-shield-alt"></i></span>
+                    <div>
+                        <p class="font-semibold">Compliance ready</p>
+                        <p class="text-sm text-white/70">Immutable audit trails and automated violation triage.</p>
+                    </div>
+                </li>
+            </ul>
+        </section>
+
+        <section class="bg-slate-900/80 border border-white/5 rounded-3xl p-8 shadow-xl backdrop-blur">
+            <div class="flex items-center space-x-2 mb-6">
+                <button id="login-tab" class="px-3 py-1 rounded-full bg-white text-slate-900 font-semibold text-sm">
+                    Sign in
+                </button>
+                <button id="register-tab" class="px-3 py-1 rounded-full bg-transparent border border-white/20 text-white text-sm">
+                    Create account
+                </button>
+            </div>
+
+            <div id="auth-alert" class="hidden mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-200 px-3 py-2 text-sm"></div>
+
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label for="login-username" class="text-sm text-white/70">Username</label>
+                    <input id="login-username" name="username" type="text" required
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                           placeholder="flight.director" autocomplete="username">
+                </div>
+                <div>
+                    <label for="login-password" class="text-sm text-white/70">Password</label>
+                    <input id="login-password" name="password" type="password" required
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                           placeholder="••••••••" autocomplete="current-password">
+                </div>
+                <button type="submit"
+                        class="w-full rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 px-4 py-3 font-semibold text-white transition">
+                    Access dashboard
+                </button>
+                <p class="text-sm text-white/60 text-center">Need an account? <span class="text-white underline cursor-pointer" id="show-register">Register here</span>.</p>
+            </form>
+
+            <form id="register-form" class="space-y-4 hidden">
+                <div>
+                    <label for="register-username" class="text-sm text-white/70">Username</label>
+                    <input id="register-username" name="username" type="text" required
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                           placeholder="call.sign" autocomplete="off">
+                </div>
+                <div>
+                    <label for="register-email" class="text-sm text-white/70">Work email</label>
+                    <input id="register-email" name="email" type="email" required
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                           placeholder="pilot@intellisynth.com" autocomplete="email">
+                </div>
+                <div>
+                    <label for="register-full-name" class="text-sm text-white/70">Full name</label>
+                    <input id="register-full-name" name="full_name" type="text"
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                           placeholder="Alex Rivera">
+                </div>
+                <div>
+                    <label for="register-department" class="text-sm text-white/70">Team / department</label>
+                    <input id="register-department" name="department" type="text"
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                           placeholder="Flight Ops">
+                </div>
+                <div>
+                    <label for="register-password" class="text-sm text-white/70">Create password</label>
+                    <input id="register-password" name="password" type="password" required minlength="8"
+                           class="mt-1 w-full rounded-2xl bg-slate-800/70 border border-white/10 px-4 py-3 focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                           placeholder="Strong passphrase" autocomplete="new-password">
+                </div>
+                <button type="submit"
+                        class="w-full rounded-2xl bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 px-4 py-3 font-semibold text-white transition">
+                    Create secure account
+                </button>
+                <p class="text-sm text-white/60 text-center">Already onboarded? <span class="text-white underline cursor-pointer" id="show-login">Sign in here</span>.</p>
+            </form>
+
+            <p class="text-xs text-center text-white/40 mt-6">
+                By continuing you agree to the acceptable use policy and confirm you are authorized to operate AI assets.
+            </p>
+        </section>
+    </div>
+
+    <script src="/static/login.js" defer></script>
+</body>
+</html>

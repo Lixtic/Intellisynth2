@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, HTTPException, Query, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Type
 from pydantic import BaseModel, Field
@@ -23,10 +23,33 @@ from app.config import get_activity_logger, get_agent_service
 from app.services.compliance_rule_service_firestore import (
     compliance_rule_firestore_service,
 )
+from app.services.auth_service import auth_service
 
 # Firebase-backed services
 activity_logger = get_activity_logger()
 agent_service = get_agent_service()
+
+
+async def _get_authenticated_user(request: Request) -> Optional[Dict[str, Any]]:
+    """Return the current user based on the HTTP-only access token cookie."""
+
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+
+    return await auth_service.get_current_user(token)
+
+
+async def _require_api_user(request: Request) -> Dict[str, Any]:
+    """Ensure the caller is authenticated when hitting JSON APIs."""
+
+    user = await _get_authenticated_user(request)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return user
 
 def _safe_enum_value(enum_cls: Type, value, default):
     """Safely convert raw values into Enum members."""
@@ -290,6 +313,11 @@ class ActivityLogCreate(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict, description="Additional structured data")
     user_id: Optional[str] = Field(None, description="User ID if applicable")
     session_id: Optional[str] = Field(None, description="Session ID if applicable")
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, description="Preferred full name")
+    department: Optional[str] = Field(None, description="Team or department name")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -663,7 +691,31 @@ templates = Jinja2Templates(directory="templates")
          description="Interactive dashboard with real-time monitoring, charts, and system status widgets")
 async def dashboard(request: Request):
     """Main dashboard with comprehensive monitoring interface"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    context = {
+        "request": request,
+        "user": current_user,
+        "dashboard_config": dashboard_config,
+    }
+    return templates.TemplateResponse("dashboard.html", context)
+
+
+@app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="Sign in",
+         description="Authentication portal for secure dashboard access")
+async def login_page(request: Request):
+    """Render the login and registration experience."""
+
+    current_user = await _get_authenticated_user(request)
+    if current_user:
+        return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.get("/onboarding", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -671,7 +723,11 @@ async def dashboard(request: Request):
          description="Guided onboarding experience highlighting real-world usage scenarios and setup steps")
 async def onboarding(request: Request):
     """Onboarding page showcasing real-world scenarios and quick-start guidance"""
-    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
+    current_user = await _get_authenticated_user(request)
+    return templates.TemplateResponse(
+        "onboarding.html",
+        {"request": request, "datetime": datetime, "user": current_user},
+    )
 
 
 @app.get("/", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -679,28 +735,72 @@ async def onboarding(request: Request):
          description="Default landing that introduces IntelliSynth with guided setup steps and customer stories")
 async def landing(request: Request):
     """Default landing page that reuses the onboarding experience"""
-    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
+    current_user = await _get_authenticated_user(request)
+    return templates.TemplateResponse(
+        "onboarding.html",
+        {"request": request, "datetime": datetime, "user": current_user},
+    )
 
 @app.get("/compliance", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Compliance Management",
          description="Comprehensive compliance management interface with violation tracking, rule management, and reporting")
 async def compliance_management(request: Request):
     """Compliance management interface with full violation tracking and rule management"""
-    return templates.TemplateResponse("compliance.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "compliance.html",
+        {"request": request, "user": current_user},
+    )
 
 @app.get("/activity-log", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Real-time Activity Log",
          description="Central hub that logs every AI agent action, decision, and data point creating a transparent immutable record")
 async def activity_log(request: Request):
     """Real-time activity log - transparent immutable record of all AI agent interactions"""
-    return templates.TemplateResponse("activity-log.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "activity-log.html",
+        {"request": request, "user": current_user},
+    )
 
 @app.get("/reports", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Reports & Analytics",
          description="Comprehensive reporting and analytics dashboard for AI agent activities, compliance, and performance metrics")
 async def reports(request: Request):
     """Reports and analytics interface with charts, metrics, and export capabilities"""
-    return templates.TemplateResponse("reports.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "reports.html",
+        {"request": request, "user": current_user},
+    )
+
+
+@app.get("/profile", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="User Profile",
+         description="Personalize preferences, review identity details, and manage department assignments")
+async def profile_page(request: Request):
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    return templates.TemplateResponse(
+        "profile.html",
+        {
+            "request": request,
+            "user": current_user,
+            "dashboard_config": dashboard_config,
+        },
+    )
 
 
 @app.get("/api-endpoints", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -708,6 +808,10 @@ async def reports(request: Request):
          description="Human-friendly explorer that groups IntelliSynth API endpoints by capability with quick filters")
 async def api_endpoint_catalog(request: Request):
     """Serve the interactive API endpoint reference page"""
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
     total_endpoints = sum(len(category["endpoints"]) for category in API_ENDPOINT_CATALOG)
     method_counts: Dict[str, int] = {}
     for category in API_ENDPOINT_CATALOG:
@@ -717,6 +821,7 @@ async def api_endpoint_catalog(request: Request):
 
     context = {
         "request": request,
+        "user": current_user,
         "categories": API_ENDPOINT_CATALOG,
         "method_styles": METHOD_BADGES,
         "method_counts": method_counts,
@@ -725,13 +830,6 @@ async def api_endpoint_catalog(request: Request):
         "last_refreshed": datetime.utcnow().strftime("%b %d, %Y %H:%M UTC"),
     }
     return templates.TemplateResponse("api_endpoints.html", context)
-
-@app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
-         summary="Login Page",
-         description="User authentication page with demo credentials (demo/demo123)")
-async def login(request: Request):
-    """Login page for user authentication"""
-    return templates.TemplateResponse("login.html", {"request": request})
 
 @app.get("/test", tags=["🏠 Core Application"],
          summary="API Test Endpoint", 
@@ -845,11 +943,46 @@ async def auth_status():
         "timestamp": datetime.utcnow().isoformat()
     }
 
+
+@app.get("/api/user/profile", tags=["🔐 Authentication"],
+         summary="Current User Profile",
+         description="Return the authenticated user's profile and dashboard preferences")
+async def get_user_profile(request: Request):
+    current_user = await _require_api_user(request)
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    return {
+        "user": current_user,
+        "dashboard_config": dashboard_config,
+    }
+
+
+@app.put("/api/user/profile", tags=["🔐 Authentication"],
+         summary="Update User Profile",
+         description="Update the authenticated user's profile metadata")
+async def update_user_profile(request: Request, payload: UserProfileUpdate):
+    current_user = await _require_api_user(request)
+    full_name = payload.full_name.strip() if payload.full_name else None
+    department = payload.department.strip() if payload.department else None
+
+    updated = await auth_service.update_user(
+        current_user["id"],
+        full_name=full_name,
+        department=department,
+    )
+
+    dashboard_config = await auth_service.get_user_dashboard_config(updated or current_user)
+    return {
+        "status": "success",
+        "user": updated or current_user,
+        "dashboard_config": dashboard_config,
+    }
+
 # � Activity Log Endpoints - Central hub for transparent, immutable record of all AI agent interactions
 @app.get("/api/activity-logs", tags=["📋 Activity Log"],
          summary="Get Activity Logs",
          description="Retrieve activity logs with filtering and pagination for transparent AI agent monitoring")
 async def get_activity_logs(
+    request: Request,
     limit: int = Query(100, ge=1, le=1000, description="Number of logs to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
@@ -858,7 +991,8 @@ async def get_activity_logs(
     since: Optional[str] = Query(None, description="Get logs since timestamp")
 ):
     """Get activity logs with comprehensive filtering and immutable record tracking"""
-    
+    await _require_api_user(request)
+
     # Parse since parameter
     since_datetime = None
     if since:
@@ -868,7 +1002,7 @@ async def get_activity_logs(
             raise HTTPException(status_code=400, detail="Invalid timestamp format for 'since' parameter")
     
     # Get activities from the activity logger service
-    activities = activity_logger.get_activities(
+    activities = await activity_logger.get_activities(
         limit=limit,
         agent_id=agent_id,
         action_type=action_type,
@@ -881,6 +1015,7 @@ async def get_activity_logs(
          summary="Get Latest Activity Logs",
          description="Get the latest activity logs since a specific timestamp for real-time updates")
 async def get_latest_activities(
+    request: Request,
     since: str = Query(..., description="Get activities since this timestamp"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of activities to return")
 ):
@@ -892,19 +1027,21 @@ async def get_latest_activities(
         raise HTTPException(status_code=400, detail="Invalid timestamp format")
     
     # Get latest activities
-    activities = activity_logger.get_latest_activities(since_datetime, limit)
+    await _require_api_user(request)
+    activities = await activity_logger.get_latest_activities(since_datetime, limit)
     return activities
 
 @app.get("/api/activity-logs/stats", tags=["📋 Activity Log"],
          summary="Get Activity Statistics",
          description="Get aggregated statistics for activity logs including counts, performance metrics, and agent activity")
 async def get_activity_stats(
+    request: Request,
     since: Optional[str] = Query(None, description="Calculate stats since this timestamp")
 ):
     """Get comprehensive activity log statistics"""
-    
+    await _require_api_user(request)
     # Get stats from the activity logger service
-    stats = activity_logger.get_activity_stats()
+    stats = await activity_logger.get_activity_stats()
     # Remove simulated values: always return empty hourly_activity and agent_distribution if no activities
     if not stats.get('total_activities'):
         stats['hourly_activity'] = [0] * 24
@@ -914,20 +1051,40 @@ async def get_activity_stats(
 @app.get("/api/agents", tags=["📋 Activity Log"],
          summary="Get Active Agents",
          description="Get list of active AI agents with their current status and activity metrics")
-async def get_agents():
+async def get_agents(request: Request):
     """Get list of active AI agents for filtering and monitoring"""
-    
-    # Return empty list (no simulated agents)
-    return []
+    await _require_api_user(request)
+    agents = await agent_service.get_all_agents(limit=200)
+    return agents
 
 @app.get("/api/activity-logs/verify-integrity", tags=["📋 Activity Log"],
          summary="Verify Record Integrity",
          description="Verify the integrity of the immutable activity log records using cryptographic hashes")
-async def verify_integrity():
+async def verify_integrity(
+    request: Request,
+    activity_id: Optional[str] = Query(
+        None,
+        description="Activity log ID to verify; defaults to the most recent entry",
+    )
+):
     """Verify the integrity of the immutable activity log records"""
-    
-    # Use the activity logger's verify_integrity method
-    return activity_logger.verify_integrity()
+    await _require_api_user(request)
+
+    target_id = activity_id
+    if not target_id:
+        recent = await activity_logger.get_activities(limit=1)
+        if not recent:
+            raise HTTPException(status_code=404, detail="No activity logs available to verify")
+        target_id = recent[0].get('id')
+        if not target_id:
+            raise HTTPException(status_code=400, detail="Latest activity log is missing an identifier")
+
+    is_valid = await activity_logger.verify_integrity(target_id)
+    return {
+        "activity_id": target_id,
+        "is_valid": is_valid,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 # Helper functions for generating sample and real-time data
 async def generate_sample_activities():
@@ -1032,8 +1189,9 @@ async def generate_realtime_activity():
 @app.get("/api/services/status", tags=["🔧 System Services"],
          summary="Service Status Overview",
          description="Comprehensive overview of all system services including health status and performance metrics")
-async def services_status():
+async def services_status(request: Request):
     """Get status of all system services"""
+    await _require_api_user(request)
     return {
         "services": {
             "authentication": {"status": "running", "uptime": "99.9%"},
@@ -1053,8 +1211,9 @@ async def services_status():
 @app.get("/api/monitoring/metrics", tags=["📊 Agent Monitoring"],
          summary="Dashboard Metrics",
          description="Real-time system metrics for dashboard widgets including CPU, memory, and performance data")
-async def get_metrics():
+async def get_metrics(request: Request):
     """Get current system metrics for dashboard"""
+    await _require_api_user(request)
     return {
         "cpu_usage": 0.0,
         "memory_usage": 0.0,
@@ -1068,8 +1227,9 @@ async def get_metrics():
 @app.get("/api/monitoring/activity", tags=["📊 Agent Monitoring"],
          summary="Activity Feed",
          description="Recent activity feed showing agent actions, system events, and task completions")
-async def get_activity():
+async def get_activity(request: Request):
     """Get recent system activity"""
+    await _require_api_user(request)
     return {
         "activities": [],
         "total_today": 0,
@@ -1079,8 +1239,9 @@ async def get_activity():
 @app.get("/api/monitoring/agents", tags=["📊 Agent Monitoring"],
          summary="Connected Agents (Primary)",
          description="Comprehensive list of all connected AI agents with detailed status, capabilities, and performance metrics. Includes 11 agents with 6 API-integrated agents using curl commands.")
-async def get_agents():
+async def get_agents(request: Request):
     """Get all connected agents with comprehensive details"""
+    await _require_api_user(request)
     return {
         "agents": [],
         "total_count": 0,
@@ -1092,8 +1253,9 @@ async def get_agents():
 @app.get("/api/monitoring/system", tags=["📊 Agent Monitoring"],
          summary="System Metrics",
          description="Detailed system performance metrics including resource usage, network statistics, and performance indicators")
-async def get_system_metrics():
+async def get_system_metrics(request: Request):
     """Get detailed system metrics"""
+    await _require_api_user(request)
     return {
         "system": {
             "cpu": {"usage": 0.0, "cores": 0, "load_avg": [0.0, 0.0, 0.0]},
@@ -1114,8 +1276,12 @@ async def get_system_metrics():
 @app.get("/api/monitoring/audit/summary", tags=["🔍 Audit & Compliance"],
          summary="Audit Summary",
          description="Comprehensive audit trail summary with compliance status, violations, and recent activities")
-async def get_audit_summary(hours: int = Query(24, description="Number of hours to look back for audit data")):
+async def get_audit_summary(
+    request: Request,
+    hours: int = Query(24, description="Number of hours to look back for audit data"),
+):
     """Get audit trail summary"""
+    await _require_api_user(request)
     return {
         "period": f"Last {hours} hours",
         "total_events": 0,
@@ -1133,10 +1299,11 @@ async def get_audit_summary(hours: int = Query(24, description="Number of hours 
 @app.get("/api/monitoring/compliance/violations", tags=["🔍 Audit & Compliance"],
          summary="Compliance Violations",
          description="Active compliance violations requiring attention with severity levels and resolution status")
-async def get_compliance_violations():
+async def get_compliance_violations(request: Request):
     """Get current compliance violations based on real activity data"""
+    await _require_api_user(request)
     # Get recent activity logs to analyze for compliance issues
-    recent_activities = activity_logger.get_activities(limit=100)
+    recent_activities = await activity_logger.get_activities(limit=100)
     
     violations = []
     violation_count = 0
@@ -1225,24 +1392,27 @@ async def get_compliance_violations():
 @app.get("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
          summary="Compliance Rules",
          description="Get all compliance rules with their status and violation counts")
-async def get_compliance_rules():
+async def get_compliance_rules(request: Request):
     """Get compliance rules for management interface"""
+    await _require_api_user(request)
     return await _build_compliance_rules_response()
 
 
 @app.get("/api/rules", tags=["🔍 Audit & Compliance"],
          summary="Rules List",
          description="Get compliance rules list (compatibility endpoint)")
-async def get_rules():
+async def get_rules(request: Request):
     """Compatibility endpoint for legacy UI components"""
+    await _require_api_user(request)
     return await _build_compliance_rules_response()
 
 
 @app.post("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
           summary="Add Compliance Rule",
           description="Create a new compliance rule for monitoring")
-async def create_compliance_rule(rule_data: dict):
+async def create_compliance_rule(request: Request, rule_data: dict):
     payload = _normalize_rule_payload(rule_data)
+    await _require_api_user(request)
     created = await compliance_rule_firestore_service.create(payload["id"], payload)
     formatted = _format_rule(created)
     return {
@@ -1255,7 +1425,8 @@ async def create_compliance_rule(rule_data: dict):
 @app.put("/api/compliance/rules/{rule_id}", tags=["🔍 Audit & Compliance"],
          summary="Update Compliance Rule",
          description="Modify an existing compliance rule configuration")
-async def update_compliance_rule(rule_id: str, rule_data: dict):
+async def update_compliance_rule(request: Request, rule_id: str, rule_data: dict):
+    await _require_api_user(request)
     existing = await compliance_rule_firestore_service.get(rule_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
@@ -1273,7 +1444,8 @@ async def update_compliance_rule(rule_id: str, rule_data: dict):
 @app.put("/api/compliance/rules/{rule_id}/toggle", tags=["🔍 Audit & Compliance"],
          summary="Toggle Compliance Rule",
          description="Pause or resume a compliance rule by toggling its status")
-async def toggle_compliance_rule(rule_id: str):
+async def toggle_compliance_rule(request: Request, rule_id: str):
+    await _require_api_user(request)
     rule = await compliance_rule_firestore_service.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
@@ -1300,8 +1472,9 @@ async def toggle_compliance_rule(rule_id: str):
 @app.put("/api/compliance/violations/{violation_id}/resolve", tags=["🔍 Audit & Compliance"],
          summary="Resolve Violation", 
          description="Mark a compliance violation as resolved")
-async def resolve_violation(violation_id: str):
+async def resolve_violation(request: Request, violation_id: str):
     """Resolve a compliance violation"""
+    await _require_api_user(request)
     return {
         "success": True,
         "violation_id": violation_id,
@@ -1313,8 +1486,9 @@ async def resolve_violation(violation_id: str):
 @app.put("/api/compliance/violations/{violation_id}/snooze", tags=["🔍 Audit & Compliance"],
          summary="Snooze Violation",
          description="Snooze a compliance violation for 24 hours") 
-async def snooze_violation(violation_id: str):
+async def snooze_violation(request: Request, violation_id: str):
     """Snooze a compliance violation"""
+    await _require_api_user(request)
     snooze_until = datetime.utcnow() + timedelta(hours=24)
     
     return {
@@ -1329,9 +1503,10 @@ async def snooze_violation(violation_id: str):
 @app.get("/api/monitoring/anomalies", tags=["🔒 Security & Anomalies"],
          summary="Anomaly Detection",
          description="Real-time anomaly detection results including statistical outliers and security threats")
-async def get_anomalies():
+async def get_anomalies(request: Request):
     """Get detected anomalies using enhanced AI-powered detection"""
     try:
+        await _require_api_user(request)
         # Initialize anomaly detection service
         from app.services.anomaly_detection import AnomalyDetectionService
         anomaly_service = AnomalyDetectionService()
@@ -1405,8 +1580,9 @@ async def get_anomalies():
 @app.get("/api/monitoring/approvals/pending", tags=["✅ Approval Workflows"],
          summary="Pending Approvals",
          description="List of pending approval requests requiring manual review and authorization")
-async def get_pending_approvals():
+async def get_pending_approvals(request: Request):
     """Get pending approval requests"""
+    await _require_api_user(request)
     approvals = [
         {
             "id": "APP001",
@@ -1442,11 +1618,13 @@ async def get_pending_approvals():
 @app.get("/api/monitoring/dashboard", tags=["📊 Agent Monitoring"],
          summary="Get comprehensive dashboard data",
          description="Get all dashboard data in one call for real-time monitoring")
-async def get_dashboard_data():
+async def get_dashboard_data(request: Request):
     """
     Get comprehensive dashboard data combining metrics, agents, alerts, and system status.
     Perfect for real-time dashboard updates with all necessary information.
     """
+    current_user = await _require_api_user(request)
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
     health_data = await health()
     status_label = (health_data.get("status") or "UNKNOWN").upper()
 
@@ -1503,7 +1681,14 @@ async def get_dashboard_data():
             "active_connections": 0
         },
         "timestamp": datetime.utcnow().isoformat(),
-        "refresh_interval": 30
+        "refresh_interval": dashboard_config.get("refresh_interval", 30),
+        "user": {
+            "username": current_user.get("username"),
+            "full_name": current_user.get("full_name"),
+            "role": current_user.get("role"),
+            "department": current_user.get("department"),
+        },
+        "preferences": dashboard_config,
     }
     return dashboard_data
 
@@ -1511,7 +1696,7 @@ async def get_dashboard_data():
 @app.post("/api/activity-logs", tags=["📋 Activity Log"],
           summary="Create Activity Log Entry",
           description="Create a new activity log entry for AI agent actions and decisions")
-async def create_activity_log(activity: ActivityLogCreate):
+async def create_activity_log(request: Request, activity: ActivityLogCreate):
     """
     Create a new activity log entry with immutable record keeping.
     
@@ -1526,6 +1711,7 @@ async def create_activity_log(activity: ActivityLogCreate):
     Each entry receives a cryptographic hash for integrity verification.
     """
     try:
+        current_user = await _require_api_user(request)
         # Generate hash for immutable record
         hash_data = f"{activity.agent_id}-{activity.action_type}-{datetime.utcnow()}-{activity.message}"
         activity_hash = hashlib.sha256(hash_data.encode()).hexdigest()[:16]
@@ -1539,7 +1725,7 @@ async def create_activity_log(activity: ActivityLogCreate):
             "severity": activity.severity,
             "message": activity.message,
             "data": activity.data,
-            "user_id": activity.user_id,
+            "user_id": activity.user_id or current_user.get("id"),
             "session_id": activity.session_id,
             "hash": activity_hash
         }
@@ -1551,7 +1737,7 @@ async def create_activity_log(activity: ActivityLogCreate):
             message=activity.message,
             severity=activity.severity,
             data=activity.data,
-            user_id=activity.user_id,
+            user_id=activity_entry["user_id"],
             session_id=activity.session_id
         )
         
@@ -1567,9 +1753,10 @@ async def create_activity_log(activity: ActivityLogCreate):
 @app.get("/api/reports/summary", tags=["📊 Reports"],
          summary="Get Reports Summary",
          description="Get summary statistics for generated reports")
-async def get_reports_summary():
+async def get_reports_summary(request: Request):
     """Get summary of all reports including counts and statistics"""
     try:
+        await _require_api_user(request)
         # Use Firebase report service for persistent storage
         from app.config import get_report_service
         report_service = get_report_service()
@@ -1587,12 +1774,14 @@ async def get_reports_summary():
          summary="List All Reports",
          description="Get a list of all generated reports")
 async def list_reports(
+    request: Request,
     report_type: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50
 ):
     """Get a list of all generated reports with metadata"""
     try:
+        await _require_api_user(request)
         # Use Firebase report service
         from app.config import get_report_service
         report_service = get_report_service()
@@ -1614,7 +1803,7 @@ async def list_reports(
 @app.post("/api/reports/generate", tags=["📊 Reports"],
           summary="Generate New Report",
           description="Generate a new report based on type and time period")
-async def generate_report(report_type: str, time_period: str = "24h"):
+async def generate_report(request: Request, report_type: str, time_period: str = "24h"):
     """
     Generate a new report based on the specified type and time period.
     
@@ -1626,6 +1815,7 @@ async def generate_report(report_type: str, time_period: str = "24h"):
     - anomaly_detection: Detected anomalies and patterns
     """
     try:
+        await _require_api_user(request)
         period_map = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}
         hours = period_map.get(time_period, 24)
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)

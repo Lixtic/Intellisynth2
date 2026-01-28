@@ -5,12 +5,18 @@ class GlobalNavbar {
         this.menuIcon = this.toggleButton ? this.toggleButton.querySelector('i') : null;
         this.realTimeButtons = Array.from(document.querySelectorAll('[data-realtime-toggle]'));
         this.isStandaloneRealtime = true;
+        this.userMenuTrigger = document.getElementById('user-menu-trigger');
+        this.userMenu = document.getElementById('user-menu');
+        this.logoutButtons = Array.from(document.querySelectorAll('[data-logout]'));
+        this.redirecting = false;
         this.init();
     }
 
     init() {
         this.setupMobileMenu();
         this.setupRealTimeButtons();
+        this.setupUserMenu();
+        this.setupLogoutButtons();
     }
 
     setupMobileMenu() {
@@ -125,6 +131,74 @@ class GlobalNavbar {
                     : '<i class="fas fa-pause mr-1"></i>Paused';
             }
         });
+    }
+
+    setupUserMenu() {
+        if (!this.userMenuTrigger || !this.userMenu) {
+            return;
+        }
+
+        this.userMenuTrigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const isVisible = !this.userMenu.classList.contains('hidden');
+            this.toggleUserMenu(!isVisible);
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!this.userMenu || this.userMenu.classList.contains('hidden')) {
+                return;
+            }
+            if (
+                this.userMenuTrigger.contains(event.target) ||
+                this.userMenu.contains(event.target)
+            ) {
+                return;
+            }
+            this.toggleUserMenu(false);
+        });
+    }
+
+    toggleUserMenu(show) {
+        if (!this.userMenu) {
+            return;
+        }
+        if (show) {
+            this.userMenu.classList.remove('hidden');
+            this.userMenuTrigger?.setAttribute('aria-expanded', 'true');
+        } else {
+            this.userMenu.classList.add('hidden');
+            this.userMenuTrigger?.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    setupLogoutButtons() {
+        if (!this.logoutButtons.length) {
+            return;
+        }
+        this.logoutButtons.forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                this.handleLogout();
+            });
+        });
+    }
+
+    async handleLogout() {
+        if (this.redirecting) {
+            return;
+        }
+        this.redirecting = true;
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'include',
+            });
+        } catch (error) {
+            console.warn('Logout failed', error);
+        } finally {
+            window.location.href = '/login';
+        }
     }
 }
 
