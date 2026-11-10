@@ -123,19 +123,7 @@ python init_db.py
 uvicorn app.main_fixed:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Access the Application
 
-Open your browser and navigate to:
-
-- **Dashboard**: http://127.0.0.1:8000/
-- **API Docs**: http://127.0.0.1:8000/docs
-- **Health Check**: http://127.0.0.1:8000/health
-
-**Demo Credentials**:
-- Username: `demo`
-- Password: `demo123`
-
----
 
 ## 💻 Installation
 
