@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Profile • AI Flight Recorder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+    <link href="/static/dashboard.css" rel="stylesheet">
+    <script src="/static/navbar.js" defer></script>
+    <script>
+        window.__USER__ = {{ (user or {}) | tojson | safe }};
+        window.__PROFILE_CONFIG__ = {{ (dashboard_config or {}) | tojson | safe }};
+    </script>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+    {% include 'partials/navbar.html' %}
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+        <header class="bg-dark-card/70 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4">
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                    <p class="text-sm text-slate-400">Signed in as</p>
+                    <h1 class="text-3xl font-semibold">{{ user.full_name or user.username }}</h1>
+                    <p class="text-sm text-slate-500">{{ user.email or 'email unavailable' }}</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="px-4 py-2 rounded-xl bg-slate-800/70 border border-slate-700/60 text-sm capitalize">
+                        <i class="fas fa-user-shield mr-2 text-accent-blue"></i>{{ (user.role or 'viewer')|replace('_', ' ') }}
+                    </div>
+                    <div class="px-4 py-2 rounded-xl bg-slate-800/70 border border-slate-700/60 text-sm">
+                        <i class="fas fa-clock mr-2 text-accent-green"></i>Last login: <span id="profile-last-login">{{ user.last_login or 'tracking pending' }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-3 text-sm text-slate-400">
+                <span class="px-3 py-1 rounded-full bg-slate-900/70 border border-slate-800">Username: <strong id="profile-username" class="font-semibold text-white">{{ user.username }}</strong></span>
+                <span class="px-3 py-1 rounded-full bg-slate-900/70 border border-slate-800">Department: <strong id="profile-department" class="font-semibold text-white">{{ user.department or 'Unassigned' }}</strong></span>
+                <span class="px-3 py-1 rounded-full bg-slate-900/70 border border-slate-800">Widgets: <strong id="profile-widget-count" class="font-semibold text-white">{{ (dashboard_config.widgets or [])|length }}</strong></span>
+            </div>
+        </header>
+
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <article class="lg:col-span-2 bg-dark-card/70 border border-slate-800 rounded-2xl p-6">
+                <h2 class="text-xl font-semibold mb-1">Update profile</h2>
+                <p class="text-sm text-slate-400 mb-6">Keep your operator card current so audit trails and approvals show the right human in the loop.</p>
+                <form id="profile-form" class="space-y-5">
+                    <div>
+                        <label for="profile-full-name" class="text-sm text-slate-400">Full name</label>
+                        <input id="profile-full-name" name="full_name" type="text" value="{{ user.full_name or '' }}"
+                               class="w-full mt-1 rounded-xl bg-slate-900/70 border border-slate-700/70 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent-blue" placeholder="Alex Flight Director">
+                    </div>
+                    <div>
+                        <label for="profile-dept-input" class="text-sm text-slate-400">Department / Team</label>
+                        <input id="profile-dept-input" name="department" type="text" value="{{ user.department or '' }}"
+                               class="w-full mt-1 rounded-xl bg-slate-900/70 border border-slate-700/70 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent-blue" placeholder="Mission Control">
+                    </div>
+                    <div id="profile-alert" class="hidden rounded-xl border px-4 py-3 text-sm"></div>
+                    <button type="submit" class="w-full bg-accent-blue hover:bg-blue-600 transition-all rounded-xl py-3 font-semibold">Save changes</button>
+                </form>
+            </article>
+
+            <article class="bg-dark-card/70 border border-slate-800 rounded-2xl p-6 space-y-4">
+                <div>
+                    <h3 class="text-lg font-semibold">Widget focus</h3>
+                    <p class="text-sm text-slate-400">Dashboard shows these cards by default.</p>
+                </div>
+                <div id="profile-widgets" class="flex flex-wrap gap-2">
+                    {% for widget in (dashboard_config.widgets or []) %}
+                        <span class="px-3 py-1 rounded-lg bg-slate-900/70 border border-slate-800 text-xs uppercase tracking-wide">{{ widget.replace('-', ' ') }}</span>
+                    {% else %}
+                        <p class="text-sm text-slate-500">All widgets enabled.</p>
+                    {% endfor %}
+                </div>
+                <div class="pt-4 border-t border-slate-800">
+                    <p class="text-sm text-slate-400">Refresh interval</p>
+                    <p class="text-2xl font-semibold"><span id="profile-refresh">{{ dashboard_config.refresh_interval or 30 }}</span>s</p>
+                </div>
+            </article>
+        </section>
+    </main>
+
+    <script src="/static/profile.js" defer></script>
+</body>
+</html>

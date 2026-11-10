@@ -1,19 +1,15 @@
-from fastapi import FastAPI, Request, HTTPException, Query, Depends
+from fastapi import FastAPI, Request, HTTPException, Query, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Type
 from pydantic import BaseModel, Field
 import logging
 import random
 import hashlib
+import uuid
 
-# Import database
-from sqlalchemy.orm import Session
-
-from app.database import SessionLocal
-from app.models.activity_log import ActivityLog
 from app.models.compliance_rule import (
     ComplianceRule,
     RuleStatus,
@@ -21,20 +17,39 @@ from app.models.compliance_rule import (
     SeverityLevel,
 )
 
-# Import activity logger service
-from app.services.activity_logger import activity_logger
+# Service imports
+from app.api.auth_routes_full import router as auth_router
+from app.config import get_activity_logger, get_agent_service
 from app.services.compliance_rule_service_firestore import (
     compliance_rule_firestore_service,
 )
+from app.services.auth_service import auth_service
 
-# Database dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Firebase-backed services
+activity_logger = get_activity_logger()
+agent_service = get_agent_service()
 
+
+async def _get_authenticated_user(request: Request) -> Optional[Dict[str, Any]]:
+    """Return the current user based on the HTTP-only access token cookie."""
+
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+
+    return await auth_service.get_current_user(token)
+
+
+async def _require_api_user(request: Request) -> Dict[str, Any]:
+    """Ensure the caller is authenticated when hitting JSON APIs."""
+
+    user = await _get_authenticated_user(request)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return user
 
 def _safe_enum_value(enum_cls: Type, value, default):
     """Safely convert raw values into Enum members."""
@@ -72,99 +87,222 @@ def _format_relative_time(timestamp: Optional[datetime]) -> str:
     return f"{days}d ago"
 
 
-def _serialize_compliance_rule(rule: ComplianceRule) -> Dict[str, Any]:
+DEFAULT_COMPLIANCE_RULES: List[Dict[str, Any]] = [
+    {
+        "id": "CR_DATA_RETENTION",
+        "name": "Data Retention Policy",
+        "description": "Ensure data is not retained longer than required retention periods",
+        "rule_type": RuleType.DATA_RETENTION.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "GDPR",
+        "regulation_reference": "Article 5(1)(e)",
+        "conditions": {
+            "max_retention_days": 90,
+            "data_types": ["logs", "activities", "audit_records"],
+        },
+        "priority": 10,
+    },
+    {
+        "id": "CR_ACCESS_CONTROL",
+        "name": "API Access Control",
+        "description": "All API access must be properly authenticated and authorized",
+        "rule_type": RuleType.ACCESS_CONTROL.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "SOX",
+        "regulation_reference": "Section 404",
+        "conditions": {
+            "require_authentication": True,
+            "require_authorization": True,
+            "allowed_roles": ["admin", "operator", "viewer"],
+        },
+        "priority": 20,
+    },
+    {
+        "id": "CR_AUDIT_LOGGING",
+        "name": "Audit Log Completeness",
+        "description": "All critical actions must be properly logged with required fields",
+        "rule_type": RuleType.AUDIT_LOGGING.value,
+        "severity": SeverityLevel.MEDIUM.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "PCI-DSS",
+        "regulation_reference": "Requirement 10",
+        "conditions": {
+            "required_fields": ["timestamp", "user_id", "action", "resource", "outcome"],
+        },
+        "priority": 30,
+    },
+    {
+        "id": "CR_ENCRYPTION",
+        "name": "Data Encryption at Rest",
+        "description": "Sensitive data must be encrypted when stored",
+        "rule_type": RuleType.ENCRYPTION.value,
+        "severity": SeverityLevel.HIGH.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "HIPAA",
+        "regulation_reference": "164.312(a)(2)(iv)",
+        "conditions": {
+            "encryption_algorithm": "AES-256",
+            "key_rotation_days": 365,
+        },
+        "priority": 40,
+    },
+    {
+        "id": "CR_SECURITY_MONITORING",
+        "name": "Security Event Monitoring",
+        "description": "Monitor and alert on security-related events and anomalies",
+        "rule_type": RuleType.MONITORING.value,
+        "severity": SeverityLevel.CRITICAL.value,
+        "status": RuleStatus.ACTIVE.value,
+        "framework": "NIST",
+        "regulation_reference": "DE.AE-1",
+        "conditions": {
+            "monitor_events": ["failed_login", "privilege_escalation", "data_exfiltration"],
+            "alert_threshold": 5,
+        },
+        "priority": 50,
+    },
+]
+
+
+def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _enum_value(enum_cls: Type, raw: Any, fallback: str) -> str:
+    if raw is None:
+        return fallback
+    if isinstance(raw, enum_cls):
+        return raw.value
+    try:
+        return enum_cls(raw).value
+    except (ValueError, TypeError):
+        try:
+            return enum_cls[str(raw).upper()].value
+        except KeyError:
+            return fallback
+
+
+def _build_default_rule_payloads() -> List[Dict[str, Any]]:
+    now = datetime.utcnow().isoformat()
+    payloads: List[Dict[str, Any]] = []
+    for template in DEFAULT_COMPLIANCE_RULES:
+        rule = dict(template)
+        rule.setdefault("id", f"CR_{uuid.uuid4().hex[:8].upper()}")
+        rule.setdefault("rule_type", RuleType.CUSTOM.value)
+        rule.setdefault("severity", SeverityLevel.MEDIUM.value)
+        rule.setdefault("status", RuleStatus.ACTIVE.value)
+        rule.setdefault("conditions", {})
+        rule.setdefault("parameters", {})
+        rule.setdefault("violations_count", 0)
+        rule.setdefault("is_automated", True)
+        rule.setdefault("priority", 100)
+        rule.setdefault("created_by", "system")
+        rule.setdefault("updated_by", "system")
+        rule.setdefault("last_check_date", now)
+        rule.setdefault("created_at", now)
+        rule.setdefault("updated_at", now)
+        payloads.append(rule)
+    return payloads
+
+
+async def _fetch_compliance_rules() -> List[Dict[str, Any]]:
+    rules = await compliance_rule_firestore_service.get_all(order_by="priority")
+    if rules:
+        return rules
+
+    defaults = _build_default_rule_payloads()
+    for rule in defaults:
+        await compliance_rule_firestore_service.create(rule["id"], rule)
+    return defaults
+
+
+def _format_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
+    last_check_dt = _parse_iso_timestamp(rule.get("last_check_date"))
     return {
-        "id": rule.id,
-        "name": rule.name,
-        "type": rule.rule_type.value if rule.rule_type else None,
-        "rule_type": rule.rule_type.value if rule.rule_type else None,
-        "severity": rule.severity.value if rule.severity else None,
-        "status": rule.status.value if rule.status else None,
-        "description": rule.description,
-        "last_check": _format_relative_time(rule.last_check_date),
-        "last_check_date": rule.last_check_date.isoformat() if rule.last_check_date else None,
-        "violations_count": rule.violations_count or 0,
-        "framework": rule.framework,
-        "regulation_reference": rule.regulation_reference,
-        "is_automated": rule.is_automated,
-        "priority": rule.priority,
-        "conditions": rule.conditions or {},
-        "parameters": rule.parameters or {},
+        "id": rule.get("id"),
+        "name": rule.get("name"),
+        "type": rule.get("rule_type"),
+        "rule_type": rule.get("rule_type"),
+        "severity": rule.get("severity"),
+        "status": rule.get("status"),
+        "description": rule.get("description"),
+        "last_check": _format_relative_time(last_check_dt),
+        "last_check_date": rule.get("last_check_date"),
+        "violations_count": rule.get("violations_count", 0),
+        "framework": rule.get("framework"),
+        "regulation_reference": rule.get("regulation_reference"),
+        "is_automated": rule.get("is_automated", True),
+        "priority": rule.get("priority", 100),
+        "conditions": rule.get("conditions", {}),
+        "parameters": rule.get("parameters", {}),
     }
 
 
-def _get_or_seed_compliance_rules(db: Session) -> List[ComplianceRule]:
-    has_rules = db.query(ComplianceRule.id).first()
-    if not has_rules:
-        defaults = ComplianceRule.create_default_rules()
-        now = datetime.utcnow()
-        for index, rule in enumerate(defaults, start=1):
-            rule.last_check_date = now - timedelta(minutes=index * 5)
-            rule.created_by = rule.created_by or "system"
-            rule.updated_by = rule.updated_by or "system"
-            if not rule.priority:
-                rule.priority = index * 10
-            db.add(rule)
-        db.commit()
-    return (
-        db.query(ComplianceRule)
-        .order_by(ComplianceRule.priority.asc(), ComplianceRule.name.asc())
-        .all()
+def _normalize_rule_payload(rule_data: Dict[str, Any], existing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    now = datetime.utcnow().isoformat()
+    payload = dict(existing or {})
+    payload["id"] = payload.get("id") or rule_data.get("id") or f"CR_{uuid.uuid4().hex[:8].upper()}"
+    payload["name"] = rule_data.get("name") or payload.get("name") or "New Rule"
+    payload["description"] = rule_data.get("description") or payload.get("description") or ""
+    payload["rule_type"] = _enum_value(
+        RuleType,
+        rule_data.get("type") or rule_data.get("rule_type") or payload.get("rule_type"),
+        payload.get("rule_type") or RuleType.CUSTOM.value,
     )
+    payload["severity"] = _enum_value(
+        SeverityLevel,
+        rule_data.get("severity") or payload.get("severity"),
+        payload.get("severity") or SeverityLevel.MEDIUM.value,
+    )
+    payload["status"] = _enum_value(
+        RuleStatus,
+        rule_data.get("status") or payload.get("status"),
+        payload.get("status") or RuleStatus.ACTIVE.value,
+    )
+    payload["conditions"] = rule_data.get("conditions", payload.get("conditions", {}))
+    payload["parameters"] = rule_data.get("parameters", payload.get("parameters", {}))
+    payload["framework"] = rule_data.get("framework", payload.get("framework"))
+    payload["regulation_reference"] = rule_data.get("regulation_reference", payload.get("regulation_reference"))
+    payload["is_automated"] = bool(rule_data.get("is_automated", payload.get("is_automated", True)))
+
+    priority_value = rule_data.get("priority", payload.get("priority", 100))
+    try:
+        payload["priority"] = int(priority_value)
+    except (TypeError, ValueError):
+        payload["priority"] = payload.get("priority", 100)
+
+    payload["violations_count"] = rule_data.get("violations_count", payload.get("violations_count", 0))
+    payload["last_check_date"] = rule_data.get("last_check_date", payload.get("last_check_date", now))
+    payload["updated_at"] = now
+    payload["updated_by"] = rule_data.get("updated_by", "compliance_ui")
+
+    if not existing:
+        payload.setdefault("created_at", now)
+        payload.setdefault("created_by", rule_data.get("created_by", "compliance_ui"))
+
+    return payload
 
 
-async def _build_compliance_rules_response(db: Session) -> Dict[str, Any]:
-    rules = _get_or_seed_compliance_rules(db)
-    active_count = sum(1 for rule in rules if rule.status == RuleStatus.ACTIVE)
-    coverage = round((active_count / len(rules)) * 100, 1) if rules else 0.0
-    response = {
-        "rules": [_serialize_compliance_rule(rule) for rule in rules],
-        "total_count": len(rules),
+async def _build_compliance_rules_response() -> Dict[str, Any]:
+    rules = await _fetch_compliance_rules()
+    formatted = [_format_rule(rule) for rule in rules]
+    active_count = sum(1 for rule in formatted if rule["status"] == RuleStatus.ACTIVE.value)
+    coverage = round((active_count / len(formatted)) * 100, 1) if formatted else 0.0
+
+    return {
+        "rules": formatted,
+        "total_count": len(formatted),
         "active_count": active_count,
         "coverage_percentage": coverage,
         "timestamp": datetime.utcnow().isoformat(),
     }
-
-    try:
-        await compliance_rule_firestore_service.sync_rules(response["rules"])
-    except Exception as sync_error:  # pragma: no cover - defensive logging
-        logger.warning("Unable to sync compliance rules to Firestore: %s", sync_error)
-
-    return response
-
-
-def _apply_rule_updates(rule: ComplianceRule, payload: Dict[str, Any]) -> None:
-    if "name" in payload:
-        rule.name = payload["name"] or rule.name
-    if "description" in payload:
-        rule.description = payload["description"] or rule.description
-    if "type" in payload or "rule_type" in payload:
-        rule.rule_type = _safe_enum_value(
-            RuleType,
-            payload.get("type") or payload.get("rule_type"),
-            rule.rule_type or RuleType.CUSTOM,
-        )
-    if "severity" in payload:
-        rule.severity = _safe_enum_value(SeverityLevel, payload["severity"], rule.severity)
-    if "status" in payload:
-        rule.status = _safe_enum_value(RuleStatus, payload["status"], rule.status)
-    if "conditions" in payload:
-        rule.conditions = payload["conditions"]
-    if "parameters" in payload:
-        rule.parameters = payload["parameters"]
-    if "framework" in payload:
-        rule.framework = payload["framework"]
-    if "regulation_reference" in payload:
-        rule.regulation_reference = payload["regulation_reference"]
-    if "is_automated" in payload:
-        rule.is_automated = bool(payload["is_automated"])
-    if "priority" in payload:
-        try:
-            rule.priority = int(payload["priority"])
-        except (TypeError, ValueError):
-            pass
-    rule.updated_at = datetime.utcnow()
-    rule.updated_by = payload.get("updated_by", "compliance_ui")
 
 # Pydantic models for activity logging
 class ActivityLogCreate(BaseModel):
@@ -175,6 +313,11 @@ class ActivityLogCreate(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict, description="Additional structured data")
     user_id: Optional[str] = Field(None, description="User ID if applicable")
     session_id: Optional[str] = Field(None, description="Session ID if applicable")
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, description="Preferred full name")
+    department: Optional[str] = Field(None, description="Team or department name")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -535,6 +678,9 @@ app = FastAPI(
     openapi_tags=tags_metadata,
 )
 
+# Replace legacy demo auth endpoints with the dedicated router
+app.include_router(auth_router, prefix="/api/auth", tags=["🔐 Authentication"])
+
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -545,7 +691,31 @@ templates = Jinja2Templates(directory="templates")
          description="Interactive dashboard with real-time monitoring, charts, and system status widgets")
 async def dashboard(request: Request):
     """Main dashboard with comprehensive monitoring interface"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    context = {
+        "request": request,
+        "user": current_user,
+        "dashboard_config": dashboard_config,
+    }
+    return templates.TemplateResponse("dashboard.html", context)
+
+
+@app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="Sign in",
+         description="Authentication portal for secure dashboard access")
+async def login_page(request: Request):
+    """Render the login and registration experience."""
+
+    current_user = await _get_authenticated_user(request)
+    if current_user:
+        return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.get("/onboarding", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -553,7 +723,11 @@ async def dashboard(request: Request):
          description="Guided onboarding experience highlighting real-world usage scenarios and setup steps")
 async def onboarding(request: Request):
     """Onboarding page showcasing real-world scenarios and quick-start guidance"""
-    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
+    current_user = await _get_authenticated_user(request)
+    return templates.TemplateResponse(
+        "onboarding.html",
+        {"request": request, "datetime": datetime, "user": current_user},
+    )
 
 
 @app.get("/", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -561,28 +735,72 @@ async def onboarding(request: Request):
          description="Default landing that introduces IntelliSynth with guided setup steps and customer stories")
 async def landing(request: Request):
     """Default landing page that reuses the onboarding experience"""
-    return templates.TemplateResponse("onboarding.html", {"request": request, "datetime": datetime})
+    current_user = await _get_authenticated_user(request)
+    return templates.TemplateResponse(
+        "onboarding.html",
+        {"request": request, "datetime": datetime, "user": current_user},
+    )
 
 @app.get("/compliance", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Compliance Management",
          description="Comprehensive compliance management interface with violation tracking, rule management, and reporting")
 async def compliance_management(request: Request):
     """Compliance management interface with full violation tracking and rule management"""
-    return templates.TemplateResponse("compliance.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "compliance.html",
+        {"request": request, "user": current_user},
+    )
 
 @app.get("/activity-log", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Real-time Activity Log",
          description="Central hub that logs every AI agent action, decision, and data point creating a transparent immutable record")
 async def activity_log(request: Request):
     """Real-time activity log - transparent immutable record of all AI agent interactions"""
-    return templates.TemplateResponse("activity-log.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "activity-log.html",
+        {"request": request, "user": current_user},
+    )
 
 @app.get("/reports", response_class=HTMLResponse, tags=["🏠 Core Application"],
          summary="Reports & Analytics",
          description="Comprehensive reporting and analytics dashboard for AI agent activities, compliance, and performance metrics")
 async def reports(request: Request):
     """Reports and analytics interface with charts, metrics, and export capabilities"""
-    return templates.TemplateResponse("reports.html", {"request": request})
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "reports.html",
+        {"request": request, "user": current_user},
+    )
+
+
+@app.get("/profile", response_class=HTMLResponse, tags=["🏠 Core Application"],
+         summary="User Profile",
+         description="Personalize preferences, review identity details, and manage department assignments")
+async def profile_page(request: Request):
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    return templates.TemplateResponse(
+        "profile.html",
+        {
+            "request": request,
+            "user": current_user,
+            "dashboard_config": dashboard_config,
+        },
+    )
 
 
 @app.get("/api-endpoints", response_class=HTMLResponse, tags=["🏠 Core Application"],
@@ -590,6 +808,10 @@ async def reports(request: Request):
          description="Human-friendly explorer that groups IntelliSynth API endpoints by capability with quick filters")
 async def api_endpoint_catalog(request: Request):
     """Serve the interactive API endpoint reference page"""
+    current_user = await _get_authenticated_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
     total_endpoints = sum(len(category["endpoints"]) for category in API_ENDPOINT_CATALOG)
     method_counts: Dict[str, int] = {}
     for category in API_ENDPOINT_CATALOG:
@@ -599,6 +821,7 @@ async def api_endpoint_catalog(request: Request):
 
     context = {
         "request": request,
+        "user": current_user,
         "categories": API_ENDPOINT_CATALOG,
         "method_styles": METHOD_BADGES,
         "method_counts": method_counts,
@@ -607,13 +830,6 @@ async def api_endpoint_catalog(request: Request):
         "last_refreshed": datetime.utcnow().strftime("%b %d, %Y %H:%M UTC"),
     }
     return templates.TemplateResponse("api_endpoints.html", context)
-
-@app.get("/login", response_class=HTMLResponse, tags=["🏠 Core Application"],
-         summary="Login Page",
-         description="User authentication page with demo credentials (demo/demo123)")
-async def login(request: Request):
-    """Login page for user authentication"""
-    return templates.TemplateResponse("login.html", {"request": request})
 
 @app.get("/test", tags=["🏠 Core Application"],
          summary="API Test Endpoint", 
@@ -727,11 +943,46 @@ async def auth_status():
         "timestamp": datetime.utcnow().isoformat()
     }
 
+
+@app.get("/api/user/profile", tags=["🔐 Authentication"],
+         summary="Current User Profile",
+         description="Return the authenticated user's profile and dashboard preferences")
+async def get_user_profile(request: Request):
+    current_user = await _require_api_user(request)
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
+    return {
+        "user": current_user,
+        "dashboard_config": dashboard_config,
+    }
+
+
+@app.put("/api/user/profile", tags=["🔐 Authentication"],
+         summary="Update User Profile",
+         description="Update the authenticated user's profile metadata")
+async def update_user_profile(request: Request, payload: UserProfileUpdate):
+    current_user = await _require_api_user(request)
+    full_name = payload.full_name.strip() if payload.full_name else None
+    department = payload.department.strip() if payload.department else None
+
+    updated = await auth_service.update_user(
+        current_user["id"],
+        full_name=full_name,
+        department=department,
+    )
+
+    dashboard_config = await auth_service.get_user_dashboard_config(updated or current_user)
+    return {
+        "status": "success",
+        "user": updated or current_user,
+        "dashboard_config": dashboard_config,
+    }
+
 # � Activity Log Endpoints - Central hub for transparent, immutable record of all AI agent interactions
 @app.get("/api/activity-logs", tags=["📋 Activity Log"],
          summary="Get Activity Logs",
          description="Retrieve activity logs with filtering and pagination for transparent AI agent monitoring")
 async def get_activity_logs(
+    request: Request,
     limit: int = Query(100, ge=1, le=1000, description="Number of logs to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
@@ -740,7 +991,8 @@ async def get_activity_logs(
     since: Optional[str] = Query(None, description="Get logs since timestamp")
 ):
     """Get activity logs with comprehensive filtering and immutable record tracking"""
-    
+    await _require_api_user(request)
+
     # Parse since parameter
     since_datetime = None
     if since:
@@ -750,7 +1002,7 @@ async def get_activity_logs(
             raise HTTPException(status_code=400, detail="Invalid timestamp format for 'since' parameter")
     
     # Get activities from the activity logger service
-    activities = activity_logger.get_activities(
+    activities = await activity_logger.get_activities(
         limit=limit,
         agent_id=agent_id,
         action_type=action_type,
@@ -763,6 +1015,7 @@ async def get_activity_logs(
          summary="Get Latest Activity Logs",
          description="Get the latest activity logs since a specific timestamp for real-time updates")
 async def get_latest_activities(
+    request: Request,
     since: str = Query(..., description="Get activities since this timestamp"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of activities to return")
 ):
@@ -774,19 +1027,21 @@ async def get_latest_activities(
         raise HTTPException(status_code=400, detail="Invalid timestamp format")
     
     # Get latest activities
-    activities = activity_logger.get_latest_activities(since_datetime, limit)
+    await _require_api_user(request)
+    activities = await activity_logger.get_latest_activities(since_datetime, limit)
     return activities
 
 @app.get("/api/activity-logs/stats", tags=["📋 Activity Log"],
          summary="Get Activity Statistics",
          description="Get aggregated statistics for activity logs including counts, performance metrics, and agent activity")
 async def get_activity_stats(
+    request: Request,
     since: Optional[str] = Query(None, description="Calculate stats since this timestamp")
 ):
     """Get comprehensive activity log statistics"""
-    
+    await _require_api_user(request)
     # Get stats from the activity logger service
-    stats = activity_logger.get_activity_stats()
+    stats = await activity_logger.get_activity_stats()
     # Remove simulated values: always return empty hourly_activity and agent_distribution if no activities
     if not stats.get('total_activities'):
         stats['hourly_activity'] = [0] * 24
@@ -796,20 +1051,40 @@ async def get_activity_stats(
 @app.get("/api/agents", tags=["📋 Activity Log"],
          summary="Get Active Agents",
          description="Get list of active AI agents with their current status and activity metrics")
-async def get_agents():
+async def get_agents(request: Request):
     """Get list of active AI agents for filtering and monitoring"""
-    
-    # Return empty list (no simulated agents)
-    return []
+    await _require_api_user(request)
+    agents = await agent_service.get_all_agents(limit=200)
+    return agents
 
 @app.get("/api/activity-logs/verify-integrity", tags=["📋 Activity Log"],
          summary="Verify Record Integrity",
          description="Verify the integrity of the immutable activity log records using cryptographic hashes")
-async def verify_integrity():
+async def verify_integrity(
+    request: Request,
+    activity_id: Optional[str] = Query(
+        None,
+        description="Activity log ID to verify; defaults to the most recent entry",
+    )
+):
     """Verify the integrity of the immutable activity log records"""
-    
-    # Use the activity logger's verify_integrity method
-    return activity_logger.verify_integrity()
+    await _require_api_user(request)
+
+    target_id = activity_id
+    if not target_id:
+        recent = await activity_logger.get_activities(limit=1)
+        if not recent:
+            raise HTTPException(status_code=404, detail="No activity logs available to verify")
+        target_id = recent[0].get('id')
+        if not target_id:
+            raise HTTPException(status_code=400, detail="Latest activity log is missing an identifier")
+
+    is_valid = await activity_logger.verify_integrity(target_id)
+    return {
+        "activity_id": target_id,
+        "is_valid": is_valid,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 # Helper functions for generating sample and real-time data
 async def generate_sample_activities():
@@ -914,8 +1189,9 @@ async def generate_realtime_activity():
 @app.get("/api/services/status", tags=["🔧 System Services"],
          summary="Service Status Overview",
          description="Comprehensive overview of all system services including health status and performance metrics")
-async def services_status():
+async def services_status(request: Request):
     """Get status of all system services"""
+    await _require_api_user(request)
     return {
         "services": {
             "authentication": {"status": "running", "uptime": "99.9%"},
@@ -935,8 +1211,9 @@ async def services_status():
 @app.get("/api/monitoring/metrics", tags=["📊 Agent Monitoring"],
          summary="Dashboard Metrics",
          description="Real-time system metrics for dashboard widgets including CPU, memory, and performance data")
-async def get_metrics():
+async def get_metrics(request: Request):
     """Get current system metrics for dashboard"""
+    await _require_api_user(request)
     return {
         "cpu_usage": 0.0,
         "memory_usage": 0.0,
@@ -950,8 +1227,9 @@ async def get_metrics():
 @app.get("/api/monitoring/activity", tags=["📊 Agent Monitoring"],
          summary="Activity Feed",
          description="Recent activity feed showing agent actions, system events, and task completions")
-async def get_activity():
+async def get_activity(request: Request):
     """Get recent system activity"""
+    await _require_api_user(request)
     return {
         "activities": [],
         "total_today": 0,
@@ -961,8 +1239,9 @@ async def get_activity():
 @app.get("/api/monitoring/agents", tags=["📊 Agent Monitoring"],
          summary="Connected Agents (Primary)",
          description="Comprehensive list of all connected AI agents with detailed status, capabilities, and performance metrics. Includes 11 agents with 6 API-integrated agents using curl commands.")
-async def get_agents():
+async def get_agents(request: Request):
     """Get all connected agents with comprehensive details"""
+    await _require_api_user(request)
     return {
         "agents": [],
         "total_count": 0,
@@ -974,8 +1253,9 @@ async def get_agents():
 @app.get("/api/monitoring/system", tags=["📊 Agent Monitoring"],
          summary="System Metrics",
          description="Detailed system performance metrics including resource usage, network statistics, and performance indicators")
-async def get_system_metrics():
+async def get_system_metrics(request: Request):
     """Get detailed system metrics"""
+    await _require_api_user(request)
     return {
         "system": {
             "cpu": {"usage": 0.0, "cores": 0, "load_avg": [0.0, 0.0, 0.0]},
@@ -996,8 +1276,12 @@ async def get_system_metrics():
 @app.get("/api/monitoring/audit/summary", tags=["🔍 Audit & Compliance"],
          summary="Audit Summary",
          description="Comprehensive audit trail summary with compliance status, violations, and recent activities")
-async def get_audit_summary(hours: int = Query(24, description="Number of hours to look back for audit data")):
+async def get_audit_summary(
+    request: Request,
+    hours: int = Query(24, description="Number of hours to look back for audit data"),
+):
     """Get audit trail summary"""
+    await _require_api_user(request)
     return {
         "period": f"Last {hours} hours",
         "total_events": 0,
@@ -1015,10 +1299,11 @@ async def get_audit_summary(hours: int = Query(24, description="Number of hours 
 @app.get("/api/monitoring/compliance/violations", tags=["🔍 Audit & Compliance"],
          summary="Compliance Violations",
          description="Active compliance violations requiring attention with severity levels and resolution status")
-async def get_compliance_violations():
+async def get_compliance_violations(request: Request):
     """Get current compliance violations based on real activity data"""
+    await _require_api_user(request)
     # Get recent activity logs to analyze for compliance issues
-    recent_activities = activity_logger.get_activities(limit=100)
+    recent_activities = await activity_logger.get_activities(limit=100)
     
     violations = []
     violation_count = 0
@@ -1107,119 +1392,89 @@ async def get_compliance_violations():
 @app.get("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
          summary="Compliance Rules",
          description="Get all compliance rules with their status and violation counts")
-async def get_compliance_rules(db: Session = Depends(get_db)):
+async def get_compliance_rules(request: Request):
     """Get compliance rules for management interface"""
-    return await _build_compliance_rules_response(db)
+    await _require_api_user(request)
+    return await _build_compliance_rules_response()
+
 
 @app.get("/api/rules", tags=["🔍 Audit & Compliance"],
          summary="Rules List",
          description="Get compliance rules list (compatibility endpoint)")
-async def get_rules(db: Session = Depends(get_db)):
-    """Get compliance rules - compatibility endpoint for frontend"""
-    return await _build_compliance_rules_response(db)
+async def get_rules(request: Request):
+    """Compatibility endpoint for legacy UI components"""
+    await _require_api_user(request)
+    return await _build_compliance_rules_response()
+
 
 @app.post("/api/compliance/rules", tags=["🔍 Audit & Compliance"],
           summary="Add Compliance Rule",
           description="Create a new compliance rule for monitoring")
-async def create_compliance_rule(rule_data: dict, db: Session = Depends(get_db)):
-    """Create a new compliance rule"""
-    rule_type_value = rule_data.get("type") or rule_data.get("rule_type") or RuleType.CUSTOM.value
-    severity_value = rule_data.get("severity") or SeverityLevel.MEDIUM.value
-    status_value = rule_data.get("status") or RuleStatus.ACTIVE.value
-
-    priority_value = rule_data.get("priority")
-    try:
-        priority_value = int(priority_value)
-    except (TypeError, ValueError):
-        priority_value = 100
-
-    new_rule = ComplianceRule(
-        name=rule_data.get("name", "New Rule"),
-        description=rule_data.get("description", ""),
-        rule_type=_safe_enum_value(RuleType, rule_type_value, RuleType.CUSTOM),
-        severity=_safe_enum_value(SeverityLevel, severity_value, SeverityLevel.MEDIUM),
-        status=_safe_enum_value(RuleStatus, status_value, RuleStatus.ACTIVE),
-        conditions=rule_data.get("conditions"),
-        parameters=rule_data.get("parameters"),
-        framework=rule_data.get("framework"),
-        regulation_reference=rule_data.get("regulation_reference"),
-        is_automated=rule_data.get("is_automated", True),
-        priority=priority_value,
-        created_by=rule_data.get("created_by", "compliance_ui"),
-        updated_by=rule_data.get("updated_by", "compliance_ui"),
-    )
-    new_rule.last_check_date = datetime.utcnow()
-    db.add(new_rule)
-    db.commit()
-    db.refresh(new_rule)
-
-    serialized_rule = _serialize_compliance_rule(new_rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover - defensive logging
-        logger.warning("Unable to sync new compliance rule to Firestore: %s", sync_error)
-    
+async def create_compliance_rule(request: Request, rule_data: dict):
+    payload = _normalize_rule_payload(rule_data)
+    await _require_api_user(request)
+    created = await compliance_rule_firestore_service.create(payload["id"], payload)
+    formatted = _format_rule(created)
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{new_rule.name}' created successfully"
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' created successfully",
     }
 
 
 @app.put("/api/compliance/rules/{rule_id}", tags=["🔍 Audit & Compliance"],
          summary="Update Compliance Rule",
          description="Modify an existing compliance rule configuration")
-async def update_compliance_rule(rule_id: str, rule_data: dict, db: Session = Depends(get_db)):
-    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
-    if not rule:
+async def update_compliance_rule(request: Request, rule_id: str, rule_data: dict):
+    await _require_api_user(request)
+    existing = await compliance_rule_firestore_service.get(rule_id)
+    if not existing:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
-    _apply_rule_updates(rule, rule_data)
-    db.commit()
-    db.refresh(rule)
-    serialized_rule = _serialize_compliance_rule(rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover
-        logger.warning("Unable to sync updated compliance rule to Firestore: %s", sync_error)
+
+    payload = _normalize_rule_payload(rule_data, existing)
+    updated = await compliance_rule_firestore_service.update(rule_id, payload)
+    formatted = _format_rule(updated or payload)
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{rule.name}' updated successfully"
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' updated successfully",
     }
 
 
 @app.put("/api/compliance/rules/{rule_id}/toggle", tags=["🔍 Audit & Compliance"],
          summary="Toggle Compliance Rule",
          description="Pause or resume a compliance rule by toggling its status")
-async def toggle_compliance_rule(rule_id: str, db: Session = Depends(get_db)):
-    rule = db.query(ComplianceRule).filter(ComplianceRule.id == rule_id).first()
+async def toggle_compliance_rule(request: Request, rule_id: str):
+    await _require_api_user(request)
+    rule = await compliance_rule_firestore_service.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail=f"Compliance rule {rule_id} not found")
-    if rule.status == RuleStatus.ACTIVE:
-        rule.status = RuleStatus.INACTIVE
-    else:
-        rule.status = RuleStatus.ACTIVE
-    rule.updated_at = datetime.utcnow()
-    rule.updated_by = "compliance_ui"
-    db.commit()
-    db.refresh(rule)
-    action = "paused" if rule.status == RuleStatus.INACTIVE else "resumed"
-    serialized_rule = _serialize_compliance_rule(rule)
-    try:
-        await compliance_rule_firestore_service.sync_rule(serialized_rule)
-    except Exception as sync_error:  # pragma: no cover
-        logger.warning("Unable to sync toggled compliance rule to Firestore: %s", sync_error)
+
+    next_status = (
+        RuleStatus.INACTIVE.value if rule.get("status") == RuleStatus.ACTIVE.value else RuleStatus.ACTIVE.value
+    )
+    updated = await compliance_rule_firestore_service.update(
+        rule_id,
+        {
+            "status": next_status,
+            "updated_at": datetime.utcnow().isoformat(),
+            "updated_by": "compliance_ui",
+        },
+    )
+    formatted = _format_rule(updated or rule)
+    action = "paused" if next_status == RuleStatus.INACTIVE.value else "resumed"
     return {
         "success": True,
-        "rule": serialized_rule,
-        "message": f"Compliance rule '{rule.name}' {action}",
+        "rule": formatted,
+        "message": f"Compliance rule '{formatted['name']}' {action}",
     }
 
 @app.put("/api/compliance/violations/{violation_id}/resolve", tags=["🔍 Audit & Compliance"],
          summary="Resolve Violation", 
          description="Mark a compliance violation as resolved")
-async def resolve_violation(violation_id: str):
+async def resolve_violation(request: Request, violation_id: str):
     """Resolve a compliance violation"""
+    await _require_api_user(request)
     return {
         "success": True,
         "violation_id": violation_id,
@@ -1231,8 +1486,9 @@ async def resolve_violation(violation_id: str):
 @app.put("/api/compliance/violations/{violation_id}/snooze", tags=["🔍 Audit & Compliance"],
          summary="Snooze Violation",
          description="Snooze a compliance violation for 24 hours") 
-async def snooze_violation(violation_id: str):
+async def snooze_violation(request: Request, violation_id: str):
     """Snooze a compliance violation"""
+    await _require_api_user(request)
     snooze_until = datetime.utcnow() + timedelta(hours=24)
     
     return {
@@ -1247,9 +1503,10 @@ async def snooze_violation(violation_id: str):
 @app.get("/api/monitoring/anomalies", tags=["🔒 Security & Anomalies"],
          summary="Anomaly Detection",
          description="Real-time anomaly detection results including statistical outliers and security threats")
-async def get_anomalies():
+async def get_anomalies(request: Request):
     """Get detected anomalies using enhanced AI-powered detection"""
     try:
+        await _require_api_user(request)
         # Initialize anomaly detection service
         from app.services.anomaly_detection import AnomalyDetectionService
         anomaly_service = AnomalyDetectionService()
@@ -1323,8 +1580,9 @@ async def get_anomalies():
 @app.get("/api/monitoring/approvals/pending", tags=["✅ Approval Workflows"],
          summary="Pending Approvals",
          description="List of pending approval requests requiring manual review and authorization")
-async def get_pending_approvals():
+async def get_pending_approvals(request: Request):
     """Get pending approval requests"""
+    await _require_api_user(request)
     approvals = [
         {
             "id": "APP001",
@@ -1360,11 +1618,13 @@ async def get_pending_approvals():
 @app.get("/api/monitoring/dashboard", tags=["📊 Agent Monitoring"],
          summary="Get comprehensive dashboard data",
          description="Get all dashboard data in one call for real-time monitoring")
-async def get_dashboard_data():
+async def get_dashboard_data(request: Request):
     """
     Get comprehensive dashboard data combining metrics, agents, alerts, and system status.
     Perfect for real-time dashboard updates with all necessary information.
     """
+    current_user = await _require_api_user(request)
+    dashboard_config = await auth_service.get_user_dashboard_config(current_user)
     health_data = await health()
     status_label = (health_data.get("status") or "UNKNOWN").upper()
 
@@ -1421,7 +1681,14 @@ async def get_dashboard_data():
             "active_connections": 0
         },
         "timestamp": datetime.utcnow().isoformat(),
-        "refresh_interval": 30
+        "refresh_interval": dashboard_config.get("refresh_interval", 30),
+        "user": {
+            "username": current_user.get("username"),
+            "full_name": current_user.get("full_name"),
+            "role": current_user.get("role"),
+            "department": current_user.get("department"),
+        },
+        "preferences": dashboard_config,
     }
     return dashboard_data
 
@@ -1429,7 +1696,7 @@ async def get_dashboard_data():
 @app.post("/api/activity-logs", tags=["📋 Activity Log"],
           summary="Create Activity Log Entry",
           description="Create a new activity log entry for AI agent actions and decisions")
-async def create_activity_log(activity: ActivityLogCreate):
+async def create_activity_log(request: Request, activity: ActivityLogCreate):
     """
     Create a new activity log entry with immutable record keeping.
     
@@ -1444,6 +1711,7 @@ async def create_activity_log(activity: ActivityLogCreate):
     Each entry receives a cryptographic hash for integrity verification.
     """
     try:
+        current_user = await _require_api_user(request)
         # Generate hash for immutable record
         hash_data = f"{activity.agent_id}-{activity.action_type}-{datetime.utcnow()}-{activity.message}"
         activity_hash = hashlib.sha256(hash_data.encode()).hexdigest()[:16]
@@ -1457,7 +1725,7 @@ async def create_activity_log(activity: ActivityLogCreate):
             "severity": activity.severity,
             "message": activity.message,
             "data": activity.data,
-            "user_id": activity.user_id,
+            "user_id": activity.user_id or current_user.get("id"),
             "session_id": activity.session_id,
             "hash": activity_hash
         }
@@ -1469,7 +1737,7 @@ async def create_activity_log(activity: ActivityLogCreate):
             message=activity.message,
             severity=activity.severity,
             data=activity.data,
-            user_id=activity.user_id,
+            user_id=activity_entry["user_id"],
             session_id=activity.session_id
         )
         
@@ -1485,9 +1753,10 @@ async def create_activity_log(activity: ActivityLogCreate):
 @app.get("/api/reports/summary", tags=["📊 Reports"],
          summary="Get Reports Summary",
          description="Get summary statistics for generated reports")
-async def get_reports_summary():
+async def get_reports_summary(request: Request):
     """Get summary of all reports including counts and statistics"""
     try:
+        await _require_api_user(request)
         # Use Firebase report service for persistent storage
         from app.config import get_report_service
         report_service = get_report_service()
@@ -1505,12 +1774,14 @@ async def get_reports_summary():
          summary="List All Reports",
          description="Get a list of all generated reports")
 async def list_reports(
+    request: Request,
     report_type: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50
 ):
     """Get a list of all generated reports with metadata"""
     try:
+        await _require_api_user(request)
         # Use Firebase report service
         from app.config import get_report_service
         report_service = get_report_service()
@@ -1532,7 +1803,7 @@ async def list_reports(
 @app.post("/api/reports/generate", tags=["📊 Reports"],
           summary="Generate New Report",
           description="Generate a new report based on type and time period")
-async def generate_report(report_type: str, time_period: str = "24h"):
+async def generate_report(request: Request, report_type: str, time_period: str = "24h"):
     """
     Generate a new report based on the specified type and time period.
     
@@ -1544,105 +1815,87 @@ async def generate_report(report_type: str, time_period: str = "24h"):
     - anomaly_detection: Detected anomalies and patterns
     """
     try:
-        db = next(get_db())
-        
-        # Parse time period
-        hours = 24
-        if time_period == "1h":
-            hours = 1
-        elif time_period == "7d":
-            hours = 168
-        elif time_period == "30d":
-            hours = 720
-        
+        await _require_api_user(request)
+        period_map = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}
+        hours = period_map.get(time_period, 24)
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-        
-        # Generate report based on type
+
+        activities = await activity_logger.get_activities(limit=5000, since=cutoff_time)
+        agents = await agent_service.get_all_agents(limit=500)
+
+        def _safe_lower(value: Any) -> str:
+            return str(value or "").lower()
+
         if report_type == "agent_activity":
-            # Get all agent activities
-            activities = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time
-            ).all()
-            
-            # Get unique agents
-            from app.models.agent import Agent
-            all_agents = db.query(Agent).all()
-            active_agents = [a for a in all_agents if a.status == 'active']
-            
-            # Count activities by type and agent
-            by_type = {}
-            by_agent = {}
+            by_type: Dict[str, int] = {}
+            by_agent: Dict[str, int] = {}
             for activity in activities:
-                action_type = activity.action_type
+                action_type = activity.get("action_type", "unknown")
                 by_type[action_type] = by_type.get(action_type, 0) + 1
-                
-                agent_id = activity.agent_id
+
+                agent_id = activity.get("agent_id", "unknown")
                 by_agent[agent_id] = by_agent.get(agent_id, 0) + 1
-            
-            # Calculate success rate
-            successful = sum(1 for a in activities if a.action_type != 'error')
-            success_rate = f"{(successful / len(activities) * 100):.1f}%" if activities else "0%"
-            
+
+            successful = sum(1 for a in activities if a.get("action_type") != "error")
+            total = len(activities)
+            success_rate = f"{(successful / total * 100):.1f}%" if total else "0%"
+
+            active_agents = [a for a in agents if _safe_lower(a.get("status")) == "active"]
+
             report_data = {
-                "total_activities": len(activities),
+                "total_activities": total,
                 "by_type": by_type,
                 "by_agent": by_agent,
                 "agent_stats": {
-                    "total_agents": len(all_agents),
+                    "total_agents": len(agents),
                     "active_agents": len(active_agents),
-                    "idle_agents": len(all_agents) - len(active_agents),
-                    "offline_agents": 0
+                    "idle_agents": len(agents) - len(active_agents),
+                    "offline_agents": 0,
                 },
                 "activity_metrics": {
-                    "total_tasks": len(activities),
+                    "total_tasks": total,
                     "completed_tasks": successful,
-                    "failed_tasks": len(activities) - successful,
-                    "success_rate": success_rate
+                    "failed_tasks": total - successful,
+                    "success_rate": success_rate,
                 },
                 "top_performing_agents": [
                     {"id": agent_id, "name": agent_id, "tasks_completed": count}
-                    for agent_id, count in sorted(by_agent.items(), key=lambda x: x[1], reverse=True)[:5]
-                ]
+                    for agent_id, count in sorted(by_agent.items(), key=lambda item: item[1], reverse=True)[:5]
+                ],
             }
-        
+
         elif report_type == "security_summary":
-            # Get security-related activities
-            security_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.action_type.in_(['security_scan', 'error'])
-            ).all()
-            
-            threats = sum(1 for log in security_logs if log.action_type == 'security_scan')
-            errors = sum(1 for log in security_logs if log.action_type == 'error')
-            
+            security_logs = [
+                entry
+                for entry in activities
+                if entry.get("action_type") in {"security_scan", "error"}
+            ]
+            threats = sum(1 for log in security_logs if log.get("action_type") == "security_scan")
+            errors = sum(1 for log in security_logs if log.get("action_type") == "error")
             report_data = {
                 "total_security_events": len(security_logs),
                 "threats_detected": threats,
                 "errors": errors,
                 "security_events": {
                     "total_events": len(security_logs),
-                    "critical_events": sum(1 for log in security_logs if log.severity == 'critical'),
-                    "high_priority": sum(1 for log in security_logs if log.severity == 'high'),
-                    "medium_priority": sum(1 for log in security_logs if log.severity == 'medium')
+                    "critical_events": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "high_priority": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "high"),
+                    "medium_priority": sum(1 for log in security_logs if _safe_lower(log.get("severity")) == "medium"),
                 },
                 "threat_analysis": {
                     "active_threats": threats,
-                    "blocked_attempts": 0,
+                    "blocked_attempts": max(threats - errors, 0),
                     "vulnerabilities_found": threats,
-                    "remediation_pending": 0
-                }
+                    "remediation_pending": max(errors - threats, 0),
+                },
             }
-        
+
         elif report_type == "compliance_check":
-            # Get compliance-related activities
-            compliance_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.action_type == 'compliance_check'
-            ).all()
-            
-            compliant = sum(1 for log in compliance_logs if log.data and 'compliant' in str(log.data).lower())
-            violations = sum(1 for log in compliance_logs if log.data and 'violation' in str(log.data).lower())
-            
+            compliance_logs = [
+                entry for entry in activities if entry.get("action_type") == "compliance_check"
+            ]
+            compliant = sum(1 for log in compliance_logs if "compliant" in _safe_lower(log.get("data")))
+            violations = sum(1 for log in compliance_logs if "violation" in _safe_lower(log.get("data")))
             report_data = {
                 "total_checks": len(compliance_logs),
                 "compliant": compliant,
@@ -1651,104 +1904,100 @@ async def generate_report(report_type: str, time_period: str = "24h"):
                     "total_rules_checked": len(compliance_logs),
                     "rules_passed": compliant,
                     "rules_failed": violations,
-                    "compliance_score": f"{(compliant / len(compliance_logs) * 100):.1f}%" if compliance_logs else "N/A"
+                    "compliance_score": f"{(compliant / len(compliance_logs) * 100):.1f}%" if compliance_logs else "N/A",
                 },
                 "violation_summary": {
-                    "critical_violations": sum(1 for log in compliance_logs if log.severity == 'critical'),
-                    "major_violations": sum(1 for log in compliance_logs if log.severity == 'high'),
-                    "minor_violations": sum(1 for log in compliance_logs if log.severity == 'medium'),
-                    "resolved_violations": 0
-                }
+                    "critical_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "major_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "high"),
+                    "minor_violations": sum(1 for log in compliance_logs if _safe_lower(log.get("severity")) == "medium"),
+                    "resolved_violations": 0,
+                },
             }
-        
+
         elif report_type == "performance_metrics":
-            # Get performance data
-            all_activities = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time
-            ).all()
-            
-            successful = sum(1 for log in all_activities if log.action_type != 'error')
-            success_rate = (successful / len(all_activities) * 100) if all_activities else 0
-            
+            successful = sum(1 for log in activities if log.get("action_type") != "error")
+            total = len(activities)
+            success_rate = (successful / total * 100) if total else 0
+            exec_times = [
+                log.get("data", {}).get("execution_time")
+                for log in activities
+                if isinstance(log.get("data"), dict) and log.get("data", {}).get("execution_time")
+            ]
+            avg_exec = int(sum(exec_times) / len(exec_times)) if exec_times else 0
             report_data = {
-                "total_operations": len(all_activities),
-                "average_execution_time_ms": 100,  # Placeholder
+                "total_operations": total,
+                "average_execution_time_ms": avg_exec,
                 "success_rate": f"{success_rate:.1f}%",
                 "performance_summary": {
-                    "total_requests": len(all_activities),
+                    "total_requests": total,
                     "successful_requests": successful,
-                    "failed_requests": len(all_activities) - successful,
-                    "average_response_time": "100ms"
+                    "failed_requests": total - successful,
+                    "average_response_time": f"{avg_exec}ms",
                 },
                 "throughput_metrics": {
-                    "requests_per_hour": len(all_activities) // max(hours, 1),
-                    "peak_hour_requests": len(all_activities),
-                    "average_concurrent_users": 1,
-                    "max_concurrent_users": 1
-                }
+                    "requests_per_hour": total // max(hours, 1),
+                    "peak_hour_requests": total,
+                    "average_concurrent_users": max(len(agents), 1),
+                    "max_concurrent_users": max(len(agents), 1),
+                },
             }
-        
+
         elif report_type == "anomaly_detection":
-            # Get anomaly data
-            anomaly_logs = db.query(ActivityLog).filter(
-                ActivityLog.timestamp >= cutoff_time,
-                ActivityLog.severity.in_(['warning', 'critical'])
-            ).all()
-            
+            anomaly_logs = [
+                log
+                for log in activities
+                if _safe_lower(log.get("severity")) in {"warning", "critical"}
+            ]
             report_data = {
                 "anomalies_detected": len(anomaly_logs),
                 "by_severity": {
-                    "warning": sum(1 for log in anomaly_logs if log.severity == 'warning'),
-                    "critical": sum(1 for log in anomaly_logs if log.severity == 'critical')
+                    "warning": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "warning"),
+                    "critical": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "critical"),
                 },
                 "anomaly_summary": {
                     "total_anomalies": len(anomaly_logs),
-                    "critical_anomalies": sum(1 for log in anomaly_logs if log.severity == 'critical'),
-                    "warning_anomalies": sum(1 for log in anomaly_logs if log.severity == 'warning'),
-                    "resolved_anomalies": 0
+                    "critical_anomalies": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "critical"),
+                    "warning_anomalies": sum(1 for log in anomaly_logs if _safe_lower(log.get("severity")) == "warning"),
+                    "resolved_anomalies": 0,
                 },
                 "anomaly_types": {
-                    "behavioral_anomalies": sum(1 for log in anomaly_logs if log.data and 'behavior' in str(log.data).lower()),
-                    "performance_anomalies": sum(1 for log in anomaly_logs if log.data and 'performance' in str(log.data).lower()),
-                    "security_anomalies": sum(1 for log in anomaly_logs if log.action_type == 'security_scan'),
-                    "data_anomalies": sum(1 for log in anomaly_logs if log.data and 'data' in str(log.data).lower())
-                }
+                    "behavioral_anomalies": sum(1 for log in anomaly_logs if "behavior" in _safe_lower(log.get("data"))),
+                    "performance_anomalies": sum(1 for log in anomaly_logs if "performance" in _safe_lower(log.get("data"))),
+                    "security_anomalies": sum(1 for log in anomaly_logs if log.get("action_type") == "security_scan"),
+                    "data_anomalies": sum(1 for log in anomaly_logs if "data" in _safe_lower(log.get("data"))),
+                },
             }
+
         else:
             report_data = {"message": "Unknown report type"}
-        
-        # Store report in Firebase
+
         from app.config import get_report_service
+
         report_service = get_report_service()
-        
         stored_report = await report_service.create_report(
             report_type=report_type,
             time_period=time_period,
             data=report_data,
-            status="completed"
+            status="completed",
         )
-        
+
         if stored_report:
-            return {
-                "status": "success",
-                "report": stored_report
-            }
-        else:
-            # Fallback to in-memory report if Firebase storage fails
-            report_id = f"report-{int(datetime.utcnow().timestamp())}"
-            return {
-                "status": "success",
-                "report": {
-                    "id": report_id,
-                    "type": report_type,
-                    "time_period": time_period,
-                    "generated_at": datetime.utcnow().isoformat(),
-                    "data": report_data
-                }
-            }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+            return {"status": "success", "report": stored_report}
+
+        fallback_id = f"report-{int(datetime.utcnow().timestamp())}"
+        return {
+            "status": "success",
+            "report": {
+                "id": fallback_id,
+                "type": report_type,
+                "time_period": time_period,
+                "generated_at": datetime.utcnow().isoformat(),
+                "data": report_data,
+            },
+        }
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {exc}")
 
 @app.get("/api/reports/{report_id}", tags=["📊 Reports"],
          summary="Get Report Details",

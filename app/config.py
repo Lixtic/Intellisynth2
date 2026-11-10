@@ -11,14 +11,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-DatabaseType = Literal["sqlite", "firebase"]
+DatabaseType = Literal["firebase"]
 
 
 class Config:
     """Application configuration"""
     
     # Database Configuration
-    DATABASE_TYPE: DatabaseType = os.getenv('DATABASE_TYPE', 'sqlite')
+    DATABASE_TYPE: DatabaseType = os.getenv('DATABASE_TYPE', 'firebase')
     
     # Firebase Configuration
     FIREBASE_CREDENTIALS = os.getenv('FIREBASE_CREDENTIALS', './intellisynth-c1050-firebase-adminsdk-fbsvc-61edd8337e.json')
@@ -51,7 +51,7 @@ class Config:
     @classmethod
     def is_sqlite(cls) -> bool:
         """Check if using SQLite backend"""
-        return cls.DATABASE_TYPE.lower() == 'sqlite'
+        return False
     
     @classmethod
     def get_database_info(cls) -> dict:
@@ -75,12 +75,8 @@ def get_agent_service():
     Returns:
         AgentService (SQLite) or AgentServiceFirestore (Firebase)
     """
-    if config.is_firebase():
-        from app.services.agent_service_firestore import agent_service_firestore
-        return agent_service_firestore
-    else:
-        from app.services.agent_service import agent_service
-        return agent_service
+    from app.services.agent_service_firestore import agent_service_firestore
+    return agent_service_firestore
 
 
 def get_activity_logger():
@@ -90,18 +86,8 @@ def get_activity_logger():
     Returns:
         ActivityLogger (SQLite) or ActivityLoggerFirestore (Firebase)
     """
-    if config.is_firebase():
-        # Will implement Firestore version next
-        try:
-            from app.services.activity_logger_firestore import activity_logger_firestore
-            return activity_logger_firestore
-        except ImportError:
-            # Fallback to SQLite if Firestore version not available yet
-            from app.services.activity_logger import activity_logger
-            return activity_logger
-    else:
-        from app.services.activity_logger import activity_logger
-        return activity_logger
+    from app.services.activity_logger_firestore import activity_logger_firestore
+    return activity_logger_firestore
 
 
 def get_report_service():
@@ -120,3 +106,10 @@ def get_report_service():
         firebase_config.initialize()
     
     return report_service_firestore
+
+
+def get_auth_service():
+    """Return the shared authentication service instance."""
+    from app.services.auth_service import auth_service
+
+    return auth_service

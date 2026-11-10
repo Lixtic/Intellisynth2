@@ -11,6 +11,10 @@
     <link href="/static/dashboard.css" rel="stylesheet">
     <script src="/static/navbar.js" defer></script>
     <script>
+        window.__USER__ = {{ (user or {}) | tojson | safe }};
+        window.__DASHBOARD_CONFIG__ = {{ (dashboard_config or {}) | tojson | safe }};
+    </script>
+    <script>
         tailwind.config = {
             theme: {
                 extend: {
@@ -49,6 +53,42 @@
     <!-- Main Dashboard Container -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
+        <!-- Personalized Greeting -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+            <div class="lg:col-span-2 bg-dark-card/70 backdrop-blur-sm rounded-2xl border border-slate-700/60 p-6 flex flex-col gap-2" data-widget="system-health">
+                <p class="text-slate-400 text-sm">Welcome back</p>
+                <h2 class="text-3xl font-semibold">
+                    {{ user.full_name or user.username }}
+                </h2>
+                <div class="flex flex-wrap gap-3 text-sm text-slate-400">
+                    <span class="px-3 py-1 rounded-full bg-slate-800/70 border border-slate-700/70 capitalize">
+                        Role: {{ (user.role or 'viewer')|replace('_',' ') }}
+                    </span>
+                    <span class="px-3 py-1 rounded-full bg-slate-800/70 border border-slate-700/70">
+                        Department: {{ user.department or 'Unassigned' }}
+                    </span>
+                    <span class="px-3 py-1 rounded-full bg-slate-800/70 border border-slate-700/70">
+                        Last login: {{ user.last_login or 'Tracking pending' }}
+                    </span>
+                </div>
+            </div>
+            <div class="bg-dark-card/70 backdrop-blur-sm rounded-2xl border border-slate-700/60 p-6" data-widget="preferences">
+                <p class="text-slate-400 text-sm mb-2">Your focus widgets</p>
+                <div class="flex flex-wrap gap-2">
+                    {% for widget in (dashboard_config.widgets or []) %}
+                        <span class="px-3 py-1 rounded-full bg-slate-800/70 border border-slate-700/70 text-xs uppercase tracking-wide">
+                            {{ widget.replace('-', ' ') }}
+                        </span>
+                    {% else %}
+                        <span class="text-slate-500 text-sm">All widgets enabled</span>
+                    {% endfor %}
+                </div>
+                <p class="text-xs text-slate-500 mt-4">
+                    Refresh cadence: every {{ dashboard_config.refresh_interval or 30 }} seconds
+                </p>
+            </div>
+        </section>
+
         <!-- Alert Banner -->
         <div id="alert-banner" class="hidden mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-lg" role="alert">
             <div class="flex items-center">
@@ -64,7 +104,7 @@
         <!-- System Status Overview -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <!-- System Health -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all" data-widget="system-health">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-slate-400 text-sm">System Health</p>
@@ -81,7 +121,7 @@
             </div>
 
             <!-- Active Agents -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all" data-widget="agent-activity">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-slate-400 text-sm">Active Agents</p>
@@ -98,7 +138,7 @@
             </div>
 
             <!-- Tasks Completed -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all" data-widget="task-metrics">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-slate-400 text-sm">Tasks Today</p>
@@ -117,7 +157,7 @@
             </div>
 
             <!-- Compliance Score -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50 hover:bg-dark-card/80 transition-all" data-widget="compliance-status">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-slate-400 text-sm">Compliance</p>
@@ -139,7 +179,7 @@
         <!-- Charts and Monitoring Section -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <!-- System Performance Chart -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="system-performance">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-semibold text-white">System Performance</h3>
                     <div class="flex space-x-2">
@@ -154,7 +194,7 @@
             </div>
 
             <!-- Agent Activity Chart -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="agent-activity">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-semibold text-white">Agent Activity</h3>
                     <div class="text-sm text-slate-400">
@@ -171,7 +211,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             
             <!-- Connected Agents List -->
-            <div class="lg:col-span-2 bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="lg:col-span-2 bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="agent-directory">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-semibold text-white">Connected Agents</h3>
                     <button onclick="refreshAgents()" class="text-slate-400 hover:text-white transition-all"
@@ -185,7 +225,7 @@
             </div>
 
             <!-- Recent Alerts -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="security-alerts">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-semibold text-white">Recent Alerts</h3>
                     <div class="text-sm text-red-400">
@@ -202,7 +242,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             
             <!-- CPU Usage -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="cpu-usage">
                 <div class="flex items-center justify-between mb-4">
                     <h4 class="text-lg font-medium text-white">CPU Usage</h4>
                     <div class="text-2xl text-blue-400">
@@ -225,7 +265,7 @@
             </div>
 
             <!-- Memory Usage -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="memory-usage">
                 <div class="flex items-center justify-between mb-4">
                     <h4 class="text-lg font-medium text-white">Memory</h4>
                     <div class="text-2xl text-green-400">
@@ -248,7 +288,7 @@
             </div>
 
             <!-- Network Activity -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="network-usage">
                 <div class="flex items-center justify-between mb-4">
                     <h4 class="text-lg font-medium text-white">Network</h4>
                     <div class="text-2xl text-purple-400">
@@ -278,7 +318,7 @@
             </div>
 
             <!-- Disk Usage -->
-            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50">
+            <div class="bg-dark-card/60 backdrop-blur-sm rounded-xl p-6 border border-slate-700/50" data-widget="storage-usage">
                 <div class="flex items-center justify-between mb-4">
                     <h4 class="text-lg font-medium text-white">Storage</h4>
                     <div class="text-2xl text-yellow-400">

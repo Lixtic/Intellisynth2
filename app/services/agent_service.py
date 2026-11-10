@@ -11,8 +11,9 @@ from app.database import SessionLocal, engine
 from app.models.agent import Agent, AgentStatus, AgentType, Base
 from app.services.base_service import BaseService
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Create tables only when SQLite backend is enabled
+if engine is not None:
+    Base.metadata.create_all(bind=engine)
 
 
 class AgentService(BaseService):
